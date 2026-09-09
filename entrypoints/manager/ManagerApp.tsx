@@ -150,7 +150,7 @@ export function ManagerApp() {
 
   const showFaithfulPreview = async (item: CaptureItem): Promise<void> => {
     const artifact = await getFaithfulArtifact(item.id);
-    if (!artifact) throw new Error('Esta vista no tiene una captura fiel.');
+    if (!artifact) throw new Error('Esta vista no tiene un PDF visual.');
     const url = URL.createObjectURL(new Blob([artifact.data], { type: 'application/pdf' }));
     setPreview({ title: item.title, kind: 'faithful', url });
   };
@@ -181,7 +181,7 @@ export function ManagerApp() {
         for (const item of items) {
           const artifact = await getFaithfulArtifact(item.id);
           if (!artifact) {
-            throw new Error('La vista "' + item.title + '" no tiene una captura fiel.');
+            throw new Error('La vista "' + item.title + '" no tiene un PDF visual.');
           }
           exportItems.push({ item, pdf: artifact.data });
         }
@@ -231,6 +231,7 @@ export function ManagerApp() {
   }
 
   const allFaithful = items.length > 0 && items.every((item) => item.faithfulAvailable);
+  const missingFaithful = items.filter((item) => !item.faithfulAvailable).length;
 
   return (
     <main className="manager-shell">
@@ -283,18 +284,18 @@ export function ManagerApp() {
           <div className="header-actions">
             <button
               className="button primary"
-              disabled={items.length === 0 || Boolean(progress)}
-              onClick={() => void downloadPdf('readable')}
+              disabled={!allFaithful || Boolean(progress)}
+              title={allFaithful ? '' : 'Todas las vistas deben tener una captura visual'}
+              onClick={() => void downloadPdf('faithful')}
             >
-              Exportar Lectura IA
+              Exportar PDF visual
             </button>
             <button
               className="button"
-              disabled={!allFaithful || Boolean(progress)}
-              title={allFaithful ? '' : 'Todas las vistas deben tener versión fiel'}
-              onClick={() => void downloadPdf('faithful')}
+              disabled={items.length === 0 || Boolean(progress)}
+              onClick={() => void downloadPdf('readable')}
             >
-              Exportar Fiel
+              Exportar versión IA
             </button>
             <button className="button danger" onClick={() => runAction(removeSelectedCollection)}>
               Eliminar colección
@@ -343,7 +344,7 @@ export function ManagerApp() {
             </select>
           </label>
           <label className="field">
-            <span>Escala fiel</span>
+            <span>Escala visual</span>
             <select
               value={selected.printSettings.scale}
               onChange={(event) => runAction(() => updateSettings({
@@ -365,9 +366,16 @@ export function ManagerApp() {
                 printSettings: { printBackground: event.target.checked },
               }))}
             />
-            <span><strong>Imprimir fondos</strong><small>Aplica al modo fiel.</small></span>
+            <span><strong>Imprimir fondos</strong><small>Aplica al PDF visual.</small></span>
           </label>
         </section>
+
+        {missingFaithful > 0 ? (
+          <div className="warning" role="status">
+            {missingFaithful} {missingFaithful === 1 ? 'vista fue guardada' : 'vistas fueron guardadas'} solo como texto.
+            Elimina {missingFaithful === 1 ? 'esa vista' : 'esas vistas'} y vuelve a capturar para obtener el PDF visual completo.
+          </div>
+        ) : null}
 
         {progress ? (
           <section className="card progress-card" aria-live="polite">
@@ -425,8 +433,10 @@ export function ManagerApp() {
                   <a className="item-url" href={item.url} target="_blank" rel="noreferrer">{item.url}</a>
                   <div className="chips">
                     <span className="chip">{item.scope.kind === 'full-page' ? 'Página completa' : 'Secciones'}</span>
-                    <span className="chip good">Lectura IA</span>
-                    {item.faithfulAvailable ? <span className="chip good">Fiel</span> : null}
+                    <span className="chip good">
+                      {item.faithfulAvailable ? 'Versión IA' : 'Solo versión IA'}
+                    </span>
+                    {item.faithfulAvailable ? <span className="chip good">PDF visual</span> : null}
                     <span className="chip">{formatBytes(item.bytesUsed)}</span>
                     <span className="chip">{new Date(item.capturedAt).toLocaleString('es-VE')}</span>
                   </div>
@@ -440,7 +450,7 @@ export function ManagerApp() {
                     disabled={!item.faithfulAvailable}
                     onClick={() => runAction(() => showFaithfulPreview(item))}
                   >
-                    Ver PDF
+                    Ver PDF visual
                   </button>
                   <button className="button danger" onClick={() => runAction(() => removeItem(item))}>
                     Eliminar
@@ -463,12 +473,12 @@ export function ManagerApp() {
           <section className="card preview-dialog" role="dialog" aria-modal="true" aria-label={'Vista previa de ' + preview.title}>
             <header>
               <strong>{preview.title}</strong>
-              <span className="chip">{preview.kind === 'readable' ? 'Lectura IA' : 'Fiel'}</span>
+              <span className="chip">{preview.kind === 'readable' ? 'Versión IA' : 'PDF visual'}</span>
               <button className="button" autoFocus onClick={() => setPreview(undefined)}>Cerrar</button>
             </header>
             <div className="preview-content">
               {preview.document ? <SemanticPreview document={preview.document} /> : null}
-              {preview.url ? <iframe src={preview.url} title={'PDF fiel de ' + preview.title} /> : null}
+              {preview.url ? <iframe src={preview.url} title={'PDF visual de ' + preview.title} /> : null}
             </div>
           </section>
         </div>

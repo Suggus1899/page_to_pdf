@@ -45,6 +45,7 @@ describe('persistencia de colecciones', () => {
 
   it('conserva estados distintos aunque compartan la misma URL', async () => {
     const collection = await createCollection('SPA');
+    expect(collection.captureFaithful).toBe(true);
     const first = await addCapture(collection.id, payload('Estado A'));
     const second = await addCapture(collection.id, payload('Estado B'));
 
@@ -62,6 +63,7 @@ describe('persistencia de colecciones', () => {
       ensureDefaultCollection(),
     ]);
     expect(new Set(defaults.map((entry) => entry.id))).toEqual(new Set(['default']));
+    expect(defaults.every((entry) => entry.captureFaithful)).toBe(true);
     await expect(listCollections()).resolves.toHaveLength(1);
   });
 

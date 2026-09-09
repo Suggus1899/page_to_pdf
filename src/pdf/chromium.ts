@@ -29,7 +29,7 @@ export async function captureTabAsPdf(
   settings: PrintSettings,
 ): Promise<ArrayBuffer> {
   if (!(await hasDebuggerPermission())) {
-    throw new Error('El modo fiel necesita el permiso opcional de captura avanzada.');
+    throw new Error('El PDF visual necesita el permiso de captura avanzada.');
   }
 
   const target: chrome.debugger.Debuggee = { tabId };
@@ -61,9 +61,9 @@ export async function captureTabAsPdf(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/another debugger|already attached|debugger is already/i.test(message)) {
-      throw new Error('Cierra DevTools en esta pestaña y vuelve a intentar el modo fiel.');
+      throw new Error('Cierra DevTools en esta pestaña y vuelve a intentar el PDF visual.');
     }
-    throw new Error(`No se pudo crear la captura fiel: ${message}`);
+    throw new Error(`No se pudo crear el PDF visual: ${message}`);
   } finally {
     if (attached) {
       try {

@@ -91,7 +91,7 @@ export async function createCollection(name: string): Promise<CollectionDraft> {
     itemCount: 0,
     bytesUsed: 0,
     status: 'ready',
-    captureFaithful: false,
+    captureFaithful: true,
     printSettings: { ...DEFAULT_PRINT_SETTINGS },
   };
   await (await getDatabase()).put('collections', collection);
@@ -117,7 +117,7 @@ export async function ensureDefaultCollection(): Promise<CollectionDraft> {
     itemCount: 0,
     bytesUsed: 0,
     status: 'ready',
-    captureFaithful: false,
+    captureFaithful: true,
     printSettings: { ...DEFAULT_PRINT_SETTINGS },
   };
   await store.add(collection);

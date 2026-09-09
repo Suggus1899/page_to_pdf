@@ -51,20 +51,19 @@ body {
   min-height: 66px;
 }
 
-.faithful-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 10px;
+.visual-note {
+  display: grid;
+  gap: 3px;
+  margin: 0;
   border-radius: 10px;
-  background: #f1f5f9;
-  font-size: 13px;
+  padding: 11px 12px;
+  background: #e8eef8;
 }
 
-.faithful-toggle small {
-  display: block;
-  margin-top: 3px;
-  color: #66758d;
+.visual-note span {
+  color: #53627a;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .popup-footer {

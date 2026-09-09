@@ -28,16 +28,14 @@ async function injectCaptureRuntime(tabId: number): Promise<void> {
   });
 }
 
-async function captureFaithfulIfAvailable(
+async function captureVisualPdf(
   tabId: number,
-  requested: boolean,
   collection: CollectionDraft,
-  payload: CapturePayload,
-): Promise<ArrayBuffer | undefined> {
-  if (!requested || !collection.captureFaithful) return undefined;
+): Promise<ArrayBuffer> {
   if (!(await hasDebuggerPermission())) {
-    payload.warnings.push('No se guardó versión fiel porque el permiso opcional no está concedido.');
-    return undefined;
+    throw new Error(
+      'Se perdió el permiso de captura visual. Vuelve a iniciar la captura y concédelo nuevamente.',
+    );
   }
   return captureTabAsPdf(tabId, collection.printSettings);
 }
@@ -45,17 +43,11 @@ async function captureFaithfulIfAvailable(
 async function storeCapture(
   tabId: number,
   collectionId: string,
-  requestedFaithful: boolean,
   payload: CapturePayload,
 ): Promise<RuntimeResponse> {
   const collection = await getCollection(collectionId);
   if (!collection) return { ok: false, error: 'La colección ya no existe.' };
-  const faithfulPdf = await captureFaithfulIfAvailable(
-    tabId,
-    requestedFaithful,
-    collection,
-    payload,
-  );
+  const faithfulPdf = await captureVisualPdf(tabId, collection);
   const item = await addCapture(collectionId, payload, faithfulPdf);
   await browser.action.setBadgeBackgroundColor({ color: '#16a34a', tabId });
   await browser.action.setBadgeText({ text: '✓', tabId });
@@ -73,7 +65,7 @@ async function handleFullCapture(
     type: 'content/full',
   } satisfies RuntimeMessage);
   if (!response.ok || !response.data) return response;
-  return storeCapture(tab.id, message.collectionId, message.faithful, response.data);
+  return storeCapture(tab.id, message.collectionId, response.data);
 }
 
 async function handleSelectionStart(
@@ -85,7 +77,7 @@ async function handleSelectionStart(
     version: MESSAGE_PROTOCOL_VERSION,
     type: 'content/select',
     collectionId: message.collectionId,
-    faithful: message.faithful,
+    faithful: true,
   } satisfies RuntimeMessage);
   return { ok: true };
 }
@@ -99,7 +91,7 @@ async function handleMessage(
   if (message.type === 'capture/selection-ready') {
     const tabId = sender.tab?.id;
     if (tabId === undefined) return { ok: false, error: 'Se perdió la pestaña capturada.' };
-    return storeCapture(tabId, message.collectionId, message.faithful, message.payload);
+    return storeCapture(tabId, message.collectionId, message.payload);
   }
   return { ok: false, error: 'Mensaje no reconocido por el coordinador.' };
 }

@@ -70,20 +70,18 @@ export function PopupApp() {
     await refresh();
   };
 
-  const toggleFaithful = async (enabled: boolean): Promise<void> => {
+  const ensureVisualPermission = async (): Promise<void> => {
     if (!selected) return;
-    if (enabled) {
-      const granted = await chrome.permissions.request({ permissions: ['debugger'] });
-      if (!granted) {
-        setMessage({
-          text: 'Permiso denegado. El modo legible continúa disponible.',
-          error: true,
-        });
-        return;
-      }
+    const alreadyGranted = await chrome.permissions.contains({ permissions: ['debugger'] });
+    const granted = alreadyGranted || await chrome.permissions.request({ permissions: ['debugger'] });
+    if (!granted) {
+      throw new Error(
+        'No se guardó la vista. Concede el permiso de captura visual para incluir imágenes y estilos.',
+      );
     }
-    await updateCollection(selected.id, { captureFaithful: enabled });
-    await refresh();
+    if (!selected.captureFaithful) {
+      await updateCollection(selected.id, { captureFaithful: true });
+    }
   };
 
   const capture = async (
@@ -91,20 +89,22 @@ export function PopupApp() {
   ): Promise<void> => {
     if (!selected) return;
     setBusy(true);
-    setMessage({
-      text:
-        type === 'capture/full'
-          ? 'Prepara y confirma la captura en la página.'
-          : copy.selectionStarted,
-      error: false,
-    });
-    const runtimeMessage: RuntimeMessage = {
-      version: MESSAGE_PROTOCOL_VERSION,
-      type,
-      collectionId: selected.id,
-      faithful: selected.captureFaithful,
-    };
     try {
+      setMessage({ text: 'Comprobando permiso de captura visual…', error: false });
+      await ensureVisualPermission();
+      setMessage({
+        text:
+          type === 'capture/full'
+            ? 'Prepara y confirma la captura visual en la página.'
+            : copy.selectionStarted,
+        error: false,
+      });
+      const runtimeMessage: RuntimeMessage = {
+        version: MESSAGE_PROTOCOL_VERSION,
+        type,
+        collectionId: selected.id,
+        faithful: true,
+      };
       const response: RuntimeResponse = await browser.runtime.sendMessage(
         runtimeMessage,
       );
@@ -172,29 +172,21 @@ export function PopupApp() {
             disabled={!selected || busy}
             onClick={() => void capture('capture/full')}
           >
-            Añadir página completa
+            Capturar web completa
           </button>
           <button
             className="button"
             disabled={!selected || busy}
             onClick={() => void capture('capture/select')}
           >
-            Seleccionar secciones
+            Capturar secciones
           </button>
         </div>
 
-        <label className="faithful-toggle">
-          <input
-            type="checkbox"
-            checked={selected?.captureFaithful ?? false}
-            disabled={!selected || busy}
-            onChange={(event) => runAction(() => toggleFaithful(event.target.checked))}
-          />
-          <span>
-            <strong>Guardar también versión fiel</strong>
-            <small>Solicita permiso avanzado solo al activarlo.</small>
-          </span>
-        </label>
+        <p className="visual-note">
+          <strong>PDF visual completo</strong>
+          <span>Incluye imágenes, estilos y fondos. El permiso avanzado se solicita una sola vez.</span>
+        </p>
 
         {message ? (
           <div

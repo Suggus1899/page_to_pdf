@@ -1,14 +1,14 @@
 # Colección Web PDF
 
-Extensión Manifest V3 para Chrome y Opera GX que guarda estados concretos de una web y los reúne en un solo PDF. Está pensada para aplicaciones con varias rutas, pestañas, filtros o estados SPA: cada pulsación en **Añadir página completa** o **Seleccionar secciones** crea una captura inmutable, incluso cuando la URL no cambia.
+Extensión Manifest V3 para Chrome y Opera GX que guarda estados concretos de una web y los reúne en un solo PDF visual. Está pensada para aplicaciones con varias rutas, pestañas, filtros o estados SPA: cada pulsación en **Capturar web completa** o **Capturar secciones** crea una captura inmutable, incluso cuando la URL no cambia.
 
 ## Funciones incluidas
 
 - Colecciones persistentes de hasta 50 vistas y 250 MB cada una.
 - Captura asistida de página completa con preparación de contenido dinámico y restauración del scroll.
 - Selector de múltiples inclusiones y exclusiones, aislado de los estilos de la página mediante Shadow DOM.
-- Perfil **Lectura IA** por defecto: texto buscable y seleccionable, encabezados, listas, tablas, código, enlaces, formularios visibles, figuras y metadatos de origen.
-- Perfil **Fiel** opcional: usa `Page.printToPDF` del navegador y guarda el PDF en el instante de la captura.
+- **PDF visual** predeterminado: usa `Page.printToPDF` para conservar imágenes, estilos, fondos, enlaces y texto seleccionable en el instante de la captura.
+- **Versión IA** secundaria: texto normalizado, encabezados, listas, tablas, código, enlaces, formularios visibles, figuras y metadatos de origen.
 - Administrador para renombrar, previsualizar, reordenar, eliminar y exportar.
 - Portada, índice y separador por vista en cada exportación.
 - Todo se procesa y conserva localmente; no existe backend, telemetría ni lógica remota.
@@ -48,9 +48,9 @@ No hay que generar un build distinto para Opera GX.
 1. Crea o elige una colección en el popup.
 2. Navega hasta el primer estado relevante de la web y añade la página completa o sus secciones.
 3. Cambia de ruta, filtro, pestaña o estado y vuelve a añadirlo. Las URLs duplicadas están permitidas deliberadamente.
-4. Abre el administrador, revisa las vistas, cambia el orden y exporta **Lectura IA** o **Fiel**.
+4. Abre el administrador, revisa las vistas, cambia el orden y exporta **PDF visual** o **Versión IA**.
 
-Al activar **Guardar también versión fiel**, el navegador solicita el permiso opcional `debugger`. Si se deniega, se pierde o DevTools ya ocupa la pestaña, Lectura IA continúa disponible.
+En la primera captura visual, el navegador solicita el permiso opcional `debugger`. Si se deniega, se pierde o DevTools ya ocupa la pestaña, la captura se cancela sin guardar una vista parcial. Las capturas antiguas que solo tienen versión IA deben eliminarse y repetirse para incorporarlas al PDF visual.
 
 ## Pruebas en navegadores instalados
 

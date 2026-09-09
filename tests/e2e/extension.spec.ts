@@ -42,7 +42,7 @@ test.describe('build Chromium sin empaquetar', () => {
     popup.on('pageerror', (error) => popupErrors.push(error.message));
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await expect(popup.getByRole('heading', { name: 'Colección Web PDF' })).toBeVisible();
-    await expect(popup.getByRole('button', { name: 'Añadir página completa' })).toBeEnabled();
+    await expect(popup.getByRole('button', { name: 'Capturar web completa' })).toBeEnabled();
     await expect(popup.locator('select')).toContainText('Mi primera colección');
 
     const manager = await context.newPage();
@@ -50,7 +50,8 @@ test.describe('build Chromium sin empaquetar', () => {
     manager.on('pageerror', (error) => managerErrors.push(error.message));
     await manager.goto(`chrome-extension://${extensionId}/manager.html`);
     await expect(manager.getByRole('heading', { name: 'Colección Web PDF' })).toBeVisible();
-    await expect(manager.getByRole('button', { name: 'Exportar Lectura IA' })).toBeDisabled();
+    await expect(manager.getByRole('button', { name: 'Exportar PDF visual' })).toBeDisabled();
+    await expect(manager.getByRole('button', { name: 'Exportar versión IA' })).toBeDisabled();
     await expect(manager.getByText('La colección está vacía')).toBeVisible();
     await manager.reload();
     await expect(manager.getByText('Mi primera colección')).toBeVisible();

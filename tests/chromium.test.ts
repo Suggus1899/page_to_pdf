@@ -34,7 +34,19 @@ describe('adaptador PDF de Chromium', () => {
     expect(sendCommand).toHaveBeenCalledWith(
       { tabId: 12 },
       'Page.printToPDF',
-      expect.objectContaining({ paperWidth: 8.5, landscape: false, printBackground: true }),
+      expect.objectContaining({
+        paperWidth: 8.5,
+        paperHeight: 11,
+        landscape: false,
+        printBackground: true,
+        scale: 1,
+        marginTop: 0.5,
+        marginBottom: 0.5,
+        marginLeft: 0.5,
+        marginRight: 0.5,
+        preferCSSPageSize: false,
+        transferMode: 'ReturnAsBase64',
+      }),
     );
     expect(detach).toHaveBeenCalledWith({ tabId: 12 });
   });
@@ -49,9 +61,9 @@ describe('adaptador PDF de Chromium', () => {
     expect(detach).toHaveBeenCalledWith({ tabId: 12 });
   });
 
-  it('mantiene disponible el modo legible si no hay permiso', async () => {
+  it('cancela el PDF visual antes de conectar si se pierde el permiso', async () => {
     contains.mockResolvedValue(false);
-    await expect(captureTabAsPdf(12, DEFAULT_PRINT_SETTINGS)).rejects.toThrow('permiso opcional');
+    await expect(captureTabAsPdf(12, DEFAULT_PRINT_SETTINGS)).rejects.toThrow('permiso de captura');
     expect(attach).not.toHaveBeenCalled();
   });
 });

@@ -24,6 +24,7 @@ vi.mock('../src/export/worker-client', () => ({
 }));
 
 import { ManagerApp } from '../entrypoints/manager/ManagerApp';
+import { createPdfInWorker } from '../src/export/worker-client';
 
 function payload(title: string): CapturePayload {
   const capturedAt = new Date().toISOString();
@@ -58,6 +59,7 @@ describe('administrador', () => {
     await addCapture(collection.id, payload('Vista B'));
     download.mockReset();
     download.mockResolvedValue(1);
+    vi.mocked(createPdfInWorker).mockClear();
     vi.stubGlobal('browser', { downloads: { download } });
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -86,8 +88,12 @@ describe('administrador', () => {
     });
     const collections = screen.getByRole('navigation', { name: 'Colecciones guardadas' });
     expect(collections).toHaveTextContent('2 vistas');
+    expect(screen.getByRole('button', { name: 'Exportar PDF visual' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Exportar versión IA' })).toBeEnabled();
+    expect(screen.getByText(/2 vistas fueron guardadas solo como texto/)).toBeVisible();
+    expect(screen.getAllByText('Solo versión IA')).toHaveLength(2);
 
-    await user.click(screen.getByRole('button', { name: 'Exportar Lectura IA' }));
+    await user.click(screen.getByRole('button', { name: 'Exportar versión IA' }));
     expect(await screen.findByText('Generando PDF de prueba')).toBeVisible();
     act(() => finishPdf?.(new ArrayBuffer(8)));
     await waitFor(() => expect(download).toHaveBeenCalled());
@@ -99,5 +105,25 @@ describe('administrador', () => {
     await waitFor(() => expect(screen.queryByDisplayValue('Vista A')).not.toBeInTheDocument());
     expect((await listCaptureItems(collectionId)).map((item) => item.title)).toEqual(['Vista B']);
     expect(screen.getByRole('navigation', { name: 'Colecciones guardadas' })).toHaveTextContent('1 vistas');
+  });
+
+  it('habilita la exportación visual cuando todas las vistas tienen PDF', async () => {
+    await clearAllData();
+    const collection = await createCollection('Visual');
+    await addCapture(collection.id, payload('Vista visual'), new ArrayBuffer(8));
+    const user = userEvent.setup();
+    render(<ManagerApp />);
+
+    const exportButton = await screen.findByRole('button', { name: 'Exportar PDF visual' });
+    await waitFor(() => expect(exportButton).toBeEnabled());
+    expect(screen.queryByText(/solo como texto/)).not.toBeInTheDocument();
+    await user.click(exportButton);
+    expect(await screen.findByText('Generando PDF de prueba')).toBeVisible();
+    expect(createPdfInWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: 'faithful' }),
+      expect.any(Function),
+    );
+    act(() => finishPdf?.(new ArrayBuffer(8)));
+    await waitFor(() => expect(download).toHaveBeenCalled());
   });
 });
