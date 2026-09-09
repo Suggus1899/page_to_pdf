@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "Web PDF Collection"
+  },
+  "extensionDescription": {
+    "message": "Collect web views and sections and export them as a readable or faithful PDF."
+  }
+}

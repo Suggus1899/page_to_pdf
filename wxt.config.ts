@@ -1,0 +1,22 @@
+import { defineConfig } from 'wxt';
+
+export default defineConfig({
+  modules: ['@wxt-dev/module-react'],
+  manifest: {
+    name: '__MSG_extensionName__',
+    description: '__MSG_extensionDescription__',
+    default_locale: 'es',
+    permissions: [
+      'activeTab',
+      'scripting',
+      'storage',
+      'downloads',
+      'unlimitedStorage',
+    ],
+    // @ts-expect-error WXT's cross-browser union omits Chrome's documented debugger permission.
+    optional_permissions: ['debugger'],
+    action: {
+      default_title: '__MSG_extensionName__',
+    },
+  },
+});
