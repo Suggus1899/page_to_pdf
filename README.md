@@ -50,7 +50,7 @@ No hay que generar un build distinto para Opera GX.
 3. Cambia de ruta, filtro, pestaña o estado y vuelve a añadirlo. Las URLs duplicadas están permitidas deliberadamente.
 4. Abre el administrador, revisa las vistas, cambia el orden y exporta **PDF visual** o **Versión IA**.
 
-En la primera captura visual, el navegador solicita el permiso opcional `debugger`. Si se deniega, se pierde o DevTools ya ocupa la pestaña, la captura se cancela sin guardar una vista parcial. Las capturas antiguas que solo tienen versión IA deben eliminarse y repetirse para incorporarlas al PDF visual.
+Al cargar o actualizar la extensión, el navegador solicita el permiso requerido `debugger`, necesario para generar el PDF visual nativo. Si una política del navegador lo restringe o DevTools ya ocupa la pestaña, la captura se cancela sin guardar una vista parcial. Las capturas antiguas que solo tienen versión IA deben eliminarse y repetirse para incorporarlas al PDF visual.
 
 ## Pruebas en navegadores instalados
 

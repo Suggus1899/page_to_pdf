@@ -22,7 +22,7 @@ describe('adaptador PDF de Chromium', () => {
     });
   });
 
-  it('detecta el permiso opcional sin solicitarlo implícitamente', async () => {
+  it('detecta el permiso requerido antes de usar el depurador', async () => {
     expect(await hasDebuggerPermission()).toBe(true);
     expect(contains).toHaveBeenCalledWith({ permissions: ['debugger'] });
   });

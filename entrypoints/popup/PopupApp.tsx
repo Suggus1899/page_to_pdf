@@ -70,15 +70,8 @@ export function PopupApp() {
     await refresh();
   };
 
-  const ensureVisualPermission = async (): Promise<void> => {
+  const enableVisualCapture = async (): Promise<void> => {
     if (!selected) return;
-    const alreadyGranted = await chrome.permissions.contains({ permissions: ['debugger'] });
-    const granted = alreadyGranted || await chrome.permissions.request({ permissions: ['debugger'] });
-    if (!granted) {
-      throw new Error(
-        'No se guardó la vista. Concede el permiso de captura visual para incluir imágenes y estilos.',
-      );
-    }
     if (!selected.captureFaithful) {
       await updateCollection(selected.id, { captureFaithful: true });
     }
@@ -90,8 +83,7 @@ export function PopupApp() {
     if (!selected) return;
     setBusy(true);
     try {
-      setMessage({ text: 'Comprobando permiso de captura visual…', error: false });
-      await ensureVisualPermission();
+      await enableVisualCapture();
       setMessage({
         text:
           type === 'capture/full'
@@ -185,7 +177,7 @@ export function PopupApp() {
 
         <p className="visual-note">
           <strong>PDF visual completo</strong>
-          <span>Incluye imágenes, estilos y fondos. El permiso avanzado se solicita una sola vez.</span>
+          <span>Incluye imágenes, estilos y fondos. Requiere el permiso avanzado aceptado al cargar la extensión.</span>
         </p>
 
         {message ? (

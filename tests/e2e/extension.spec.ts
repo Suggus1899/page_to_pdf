@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, expect, test, type BrowserContext } from '@playwright/test';
@@ -30,6 +30,17 @@ test.describe('build Chromium sin empaquetar', () => {
     if (profileDirectory?.startsWith(tmpdir())) {
       rmSync(profileDirectory, { recursive: true, force: true });
     }
+  });
+
+  test('declara debugger como permiso requerido', () => {
+    const parsed: unknown = JSON.parse(
+      readFileSync(path.join(extensionPath, 'manifest.json'), 'utf8'),
+    );
+    if (!parsed || typeof parsed !== 'object') throw new Error('El manifiesto generado no es válido.');
+    const manifest = parsed as Record<string, unknown>;
+
+    expect(manifest.permissions).toContain('debugger');
+    expect(manifest.optional_permissions).toBeUndefined();
   });
 
   test('abre popup y administrador usando el mismo paquete', async () => {

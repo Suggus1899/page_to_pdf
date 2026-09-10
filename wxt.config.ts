@@ -12,9 +12,8 @@ export default defineConfig({
       'storage',
       'downloads',
       'unlimitedStorage',
+      'debugger',
     ],
-    // @ts-expect-error WXT's cross-browser union omits Chrome's documented debugger permission.
-    optional_permissions: ['debugger'],
     action: {
       default_title: '__MSG_extensionName__',
     },
