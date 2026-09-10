@@ -5,6 +5,17 @@ const PROTOCOL_VERSION = '1.3';
 interface PrintToPdfResult {
   data?: string;
 }
+
+interface LayoutMetricsResult {
+  cssLayoutViewport?: {
+    clientWidth?: number;
+  };
+}
+
+const CSS_PIXELS_PER_INCH = 96;
+const MIN_PRINT_SCALE = 0.1;
+const MAX_PRINT_SCALE = 2;
+
 function decodeBase64(value: string): ArrayBuffer {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -18,6 +29,20 @@ function paperDimensions(paper: PrintSettings['paper']): { width: number; height
   return paper === 'a4'
     ? { width: 8.2677, height: 11.6929 }
     : { width: 8.5, height: 11 };
+}
+
+function fittedScale(
+  settings: PrintSettings,
+  dimensions: { width: number; height: number },
+  viewportWidth?: number,
+): number {
+  if (!viewportWidth || viewportWidth <= 0) return settings.scale;
+  const paperWidth = settings.orientation === 'landscape' ? dimensions.height : dimensions.width;
+  const printableWidth = Math.max(0, paperWidth - settings.marginInches * 2);
+  // printToPDF uses the paper width for responsive layout; scale down so its effective
+  // CSS width remains the same as the captured browser tab.
+  const fitToViewport = Math.min(1, printableWidth * CSS_PIXELS_PER_INCH / viewportWidth);
+  return Math.min(MAX_PRINT_SCALE, Math.max(MIN_PRINT_SCALE, settings.scale * fitToViewport));
 }
 
 export async function hasDebuggerPermission(): Promise<boolean> {
@@ -42,11 +67,15 @@ export async function captureTabAsPdf(
       media: 'screen',
     });
     const dimensions = paperDimensions(settings.paper);
+    const metrics = (await chrome.debugger.sendCommand(
+      target,
+      'Page.getLayoutMetrics',
+    )) as LayoutMetricsResult;
     const result = (await chrome.debugger.sendCommand(target, 'Page.printToPDF', {
       landscape: settings.orientation === 'landscape',
       displayHeaderFooter: false,
       printBackground: settings.printBackground,
-      scale: settings.scale,
+      scale: fittedScale(settings, dimensions, metrics.cssLayoutViewport?.clientWidth),
       paperWidth: dimensions.width,
       paperHeight: dimensions.height,
       marginTop: settings.marginInches,

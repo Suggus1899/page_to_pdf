@@ -7,7 +7,7 @@ Extensión Manifest V3 para Chrome y Opera GX que guarda estados concretos de un
 - Colecciones persistentes de hasta 50 vistas y 250 MB cada una.
 - Captura asistida de página completa con preparación de contenido dinámico y restauración del scroll.
 - Selector de múltiples inclusiones y exclusiones, aislado de los estilos de la página mediante Shadow DOM.
-- **PDF visual** predeterminado: usa `Page.printToPDF` para conservar imágenes, estilos, fondos, enlaces y texto seleccionable en el instante de la captura.
+- **PDF visual** predeterminado: usa `Page.printToPDF`, conserva imágenes, estilos, fondos, enlaces y texto seleccionable, y ajusta el ancho original de la pestaña al papel sin activar diseños responsive más estrechos.
 - **Versión IA** secundaria: texto normalizado, encabezados, listas, tablas, código, enlaces, formularios visibles, figuras y metadatos de origen.
 - Administrador para renombrar, previsualizar, reordenar, eliminar y exportar.
 - Portada, índice y separador por vista en cada exportación.

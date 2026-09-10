@@ -13,9 +13,12 @@ describe('adaptador PDF de Chromium', () => {
     contains.mockResolvedValue(true);
     attach.mockResolvedValue(undefined);
     detach.mockResolvedValue(undefined);
-    sendCommand.mockImplementation((_target: unknown, method: string) =>
-      Promise.resolve(method === 'Page.printToPDF' ? { data: btoa('%PDF-prueba') } : {}),
-    );
+    sendCommand.mockImplementation((_target: unknown, method: string) => {
+      if (method === 'Page.getLayoutMetrics') {
+        return Promise.resolve({ cssLayoutViewport: { clientWidth: 1366 } });
+      }
+      return Promise.resolve(method === 'Page.printToPDF' ? { data: btoa('%PDF-prueba') } : {});
+    });
     vi.stubGlobal('chrome', {
       permissions: { contains },
       debugger: { attach, detach, sendCommand },
@@ -31,6 +34,7 @@ describe('adaptador PDF de Chromium', () => {
     const bytes = await captureTabAsPdf(12, DEFAULT_PRINT_SETTINGS);
     expect(new TextDecoder().decode(bytes)).toBe('%PDF-prueba');
     expect(attach).toHaveBeenCalledWith({ tabId: 12 }, '1.3');
+    expect(sendCommand).toHaveBeenNthCalledWith(3, { tabId: 12 }, 'Page.getLayoutMetrics');
     expect(sendCommand).toHaveBeenCalledWith(
       { tabId: 12 },
       'Page.printToPDF',
@@ -39,7 +43,7 @@ describe('adaptador PDF de Chromium', () => {
         paperHeight: 11,
         landscape: false,
         printBackground: true,
-        scale: 1,
+        scale: 720 / 1366,
         marginTop: 0.5,
         marginBottom: 0.5,
         marginLeft: 0.5,
@@ -49,6 +53,40 @@ describe('adaptador PDF de Chromium', () => {
       }),
     );
     expect(detach).toHaveBeenCalledWith({ tabId: 12 });
+  });
+
+  it('no amplía una vista más estrecha que el área imprimible', async () => {
+    sendCommand.mockImplementation((_target: unknown, method: string) => {
+      if (method === 'Page.getLayoutMetrics') {
+        return Promise.resolve({ cssLayoutViewport: { clientWidth: 640 } });
+      }
+      return Promise.resolve(method === 'Page.printToPDF' ? { data: btoa('%PDF-prueba') } : {});
+    });
+
+    await captureTabAsPdf(12, DEFAULT_PRINT_SETTINGS);
+
+    expect(sendCommand).toHaveBeenCalledWith(
+      { tabId: 12 },
+      'Page.printToPDF',
+      expect.objectContaining({ scale: 1 }),
+    );
+  });
+
+  it('considera orientación y escala elegida al ajustar el ancho', async () => {
+    await captureTabAsPdf(12, {
+      ...DEFAULT_PRINT_SETTINGS,
+      orientation: 'landscape',
+      scale: 1.25,
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(
+      { tabId: 12 },
+      'Page.printToPDF',
+      expect.objectContaining({
+        landscape: true,
+        scale: 1.25 * 960 / 1366,
+      }),
+    );
   });
 
   it('también desconecta si la impresión falla', async () => {
