@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['.output/**', '.wxt/**', 'coverage/**', 'playwright-report/**', 'eslint.config.js'] },
+  { ignores: ['.output/**', '.wxt/**', 'coverage/**', 'playwright-report/**', 'supabase/functions/**', 'eslint.config.js'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {

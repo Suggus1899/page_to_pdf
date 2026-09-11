@@ -14,6 +14,8 @@ import {
   getReadableArtifact,
   listCaptureItems,
   listCollections,
+  listPendingCaptureItems,
+  markCaptureReady,
   reorderCaptureItems,
 } from '../src/storage/database';
 
@@ -109,5 +111,22 @@ describe('persistencia de colecciones', () => {
         10,
       ),
     ).not.toThrow();
+  });
+
+  it('bloquea una captura pendiente hasta confirmar su reserva', async () => {
+    const collection = await createCollection('Pendientes');
+    const pending = await addCapture(
+      collection.id,
+      payload('Por confirmar'),
+      new ArrayBuffer(8),
+      { reservationId: 'reservation-1' },
+    );
+    expect(pending.status).toBe('quota-pending');
+    expect(await listPendingCaptureItems()).toEqual([pending]);
+
+    const ready = await markCaptureReady(pending.id);
+    expect(ready.status).toBe('ready');
+    expect(ready.quotaReservationId).toBeUndefined();
+    expect(await listPendingCaptureItems()).toHaveLength(0);
   });
 });

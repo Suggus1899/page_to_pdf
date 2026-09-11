@@ -17,6 +17,7 @@
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.116.0",
     "@wxt-dev/module-react": "1.2.2",
     "idb": "8.0.3",
     "pdf-lib": "1.17.1",

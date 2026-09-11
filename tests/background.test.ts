@@ -8,10 +8,33 @@ import type { RuntimeMessage, RuntimeResponse } from '../src/runtime/messages';
 
 const mocks = vi.hoisted(() => ({
   addCapture: vi.fn(),
+  cancelCaptureReservation: vi.fn(),
+  captureBytes: vi.fn(),
   captureTabAsPdf: vi.fn(),
+  commitCapture: vi.fn(),
   ensureDefaultCollection: vi.fn(),
   getCollection: vi.fn(),
   hasDebuggerPermission: vi.fn(),
+  listPendingCaptureItems: vi.fn(),
+  markCaptureReady: vi.fn(),
+  protectAccountStorage: vi.fn(),
+  requireCaptureAccess: vi.fn(),
+  reserveCapture: vi.fn(),
+}));
+
+vi.mock('../src/account/gateway', () => ({
+  cancelCaptureReservation: mocks.cancelCaptureReservation,
+  cancelSubscription: vi.fn(),
+  commitCapture: mocks.commitCapture,
+  createCheckout: vi.fn(),
+  getAccountSnapshot: vi.fn(),
+  protectAccountStorage: mocks.protectAccountStorage,
+  reconcileCaptureReservation: vi.fn(),
+  requireCaptureAccess: mocks.requireCaptureAccess,
+  reserveCapture: mocks.reserveCapture,
+  signIn: vi.fn(),
+  signOut: vi.fn(),
+  signUp: vi.fn(),
 }));
 
 vi.mock('../src/pdf/chromium', () => ({
@@ -21,8 +44,11 @@ vi.mock('../src/pdf/chromium', () => ({
 
 vi.mock('../src/storage/database', () => ({
   addCapture: mocks.addCapture,
+  captureBytes: mocks.captureBytes,
   ensureDefaultCollection: mocks.ensureDefaultCollection,
   getCollection: mocks.getCollection,
+  listPendingCaptureItems: mocks.listPendingCaptureItems,
+  markCaptureReady: mocks.markCaptureReady,
 }));
 
 const collection: CollectionDraft = {
@@ -71,12 +97,17 @@ describe('coordinador de captura visual', () => {
     mocks.getCollection.mockResolvedValue(collection);
     mocks.hasDebuggerPermission.mockResolvedValue(true);
     mocks.captureTabAsPdf.mockResolvedValue(new ArrayBuffer(12));
-    mocks.addCapture.mockResolvedValue({ id: 'item-1' });
+    mocks.captureBytes.mockReturnValue(12);
+    mocks.reserveCapture.mockResolvedValue({ id: 'reservation-1' });
+    mocks.addCapture.mockResolvedValue({ id: 'item-1', status: 'quota-pending' });
+    mocks.markCaptureReady.mockResolvedValue({ id: 'item-1', status: 'ready' });
+    mocks.listPendingCaptureItems.mockResolvedValue([]);
 
     vi.stubGlobal('defineBackground', (setup: () => void) => setup());
     vi.stubGlobal('browser', {
       runtime: {
         onInstalled: { addListener: vi.fn() },
+        onStartup: { addListener: vi.fn() },
         onMessage: {
           addListener: vi.fn((listener: RuntimeListener) => {
             runtimeListener = listener;
@@ -111,7 +142,7 @@ describe('coordinador de captura visual', () => {
     mocks.hasDebuggerPermission.mockResolvedValue(false);
 
     const response = await dispatch({
-      version: 1,
+      version: 2,
       type: 'capture/selection-ready',
       collectionId: collection.id,
       faithful: true,
@@ -129,7 +160,7 @@ describe('coordinador de captura visual', () => {
     mocks.captureTabAsPdf.mockResolvedValue(visualPdf);
 
     const response = await dispatch({
-      version: 1,
+      version: 2,
       type: 'capture/selection-ready',
       collectionId: collection.id,
       faithful: false,
@@ -138,6 +169,50 @@ describe('coordinador de captura visual', () => {
 
     expect(response.ok).toBe(true);
     expect(mocks.captureTabAsPdf).toHaveBeenCalledWith(21, DEFAULT_PRINT_SETTINGS);
-    expect(mocks.addCapture).toHaveBeenCalledWith(collection.id, payload, visualPdf);
+    expect(mocks.reserveCapture).toHaveBeenCalledWith(expect.any(String), 12);
+    expect(mocks.addCapture).toHaveBeenCalledWith(
+      collection.id,
+      payload,
+      visualPdf,
+      { reservationId: 'reservation-1' },
+    );
+    expect(mocks.commitCapture).toHaveBeenCalledWith('reservation-1');
+    expect(mocks.markCaptureReady).toHaveBeenCalledWith('item-1');
+  });
+
+  it('no guarda la captura cuando el servidor rechaza la cuota', async () => {
+    mocks.reserveCapture.mockRejectedValue(new Error('quota-exceeded'));
+    const response = await dispatch({
+      version: 2,
+      type: 'capture/selection-ready',
+      collectionId: collection.id,
+      faithful: true,
+      payload,
+    });
+
+    expect(response.ok).toBe(false);
+    expect(mocks.addCapture).not.toHaveBeenCalled();
+  });
+
+  it('conserva la vista pendiente si se corta la confirmación', async () => {
+    mocks.commitCapture.mockRejectedValue(new Error('sin conexión'));
+    const response = await dispatch({
+      version: 2,
+      type: 'capture/selection-ready',
+      collectionId: collection.id,
+      faithful: true,
+      payload,
+    });
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain('pendiente');
+    expect(mocks.addCapture).toHaveBeenCalledWith(
+      collection.id,
+      payload,
+      expect.any(ArrayBuffer),
+      { reservationId: 'reservation-1' },
+    );
+    expect(mocks.markCaptureReady).not.toHaveBeenCalled();
+    expect(mocks.cancelCaptureReservation).not.toHaveBeenCalled();
   });
 });

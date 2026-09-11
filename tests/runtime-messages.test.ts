@@ -12,8 +12,10 @@ describe('protocolo interno', () => {
   });
 
   it('rechaza versiones y estructuras desconocidas', () => {
-    expect(isRuntimeMessage({ version: 2, type: 'content/full' })).toBe(false);
+    expect(isRuntimeMessage({ version: 3, type: 'content/full' })).toBe(false);
     expect(isRuntimeMessage(null)).toBe(false);
-    expect(isRuntimeMessage({ version: 1 })).toBe(false);
+    expect(isRuntimeMessage({ version: 2 })).toBe(false);
+    expect(isRuntimeMessage({ version: 2, type: 'billing/hack' })).toBe(false);
+    expect(isRuntimeMessage({ version: 2, type: 'account/sign-in' })).toBe(false);
   });
 });

@@ -37,7 +37,8 @@ export interface CaptureItem {
   capturedAt: string;
   viewport: { width: number; height: number; devicePixelRatio: number };
   scope: CaptureScope;
-  status: 'ready';
+  status: 'ready' | 'quota-pending';
+  quotaReservationId?: string;
   readableAvailable: boolean;
   faithfulAvailable: boolean;
   bytesUsed: number;

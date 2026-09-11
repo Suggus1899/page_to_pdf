@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccountPanel } from '../../src/account/AccountPanel';
+import type { AccountSnapshot } from '../../src/account/types';
 import type { CollectionDraft } from '../../src/domain/types';
 import { MAX_COLLECTION_BYTES } from '../../src/domain/limits';
 import { copy } from '../../src/i18n/es';
@@ -23,6 +25,8 @@ export function PopupApp() {
   const [selectedId, setSelectedId] = useState('');
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [account, setAccount] = useState<AccountSnapshot>();
+  const [accountRefresh, setAccountRefresh] = useState(0);
   const [message, setMessage] = useState<{ text: string; error: boolean }>();
 
   const reportError = useCallback((error: unknown): void => {
@@ -115,6 +119,7 @@ export function PopupApp() {
       }
       if (type === 'capture/full') {
         setMessage({ text: copy.saved, error: false });
+        setAccountRefresh((value) => value + 1);
       }
       await refresh();
     } catch (error) {
@@ -135,6 +140,10 @@ export function PopupApp() {
     window.close();
   };
 
+  const canCapture = Boolean(
+    account?.configured && account.signedIn && account.emailVerified,
+  );
+
   return (
     <main className="popup">
       <header className="popup-header">
@@ -144,6 +153,8 @@ export function PopupApp() {
           <p>Captura local · PDF visual e IA</p>
         </div>
       </header>
+
+      <AccountPanel compact refreshToken={accountRefresh} onSnapshot={setAccount} />
 
       <section className="card popup-card" aria-label="Captura actual">
         <div className="collection-block">
@@ -176,7 +187,7 @@ export function PopupApp() {
           <button
             className="button primary"
             aria-label="Capturar web completa"
-            disabled={!selected || busy}
+            disabled={!selected || busy || !canCapture}
             onClick={() => void capture('capture/full')}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -187,7 +198,7 @@ export function PopupApp() {
           <button
             className="button"
             aria-label="Capturar secciones"
-            disabled={!selected || busy}
+            disabled={!selected || busy || !canCapture}
             onClick={() => void capture('capture/select')}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -280,7 +291,7 @@ export function PopupApp() {
 
         <p className="privacy-note">
           <span aria-hidden="true">◆</span>
-          Captura visual local con el permiso avanzado aceptado al cargar la extensión. Ningún contenido sale de tu dispositivo.
+          La web y el PDF permanecen en tu dispositivo. Solo se verifican cuenta, bytes y pagos.
         </p>
 
         {message ? (

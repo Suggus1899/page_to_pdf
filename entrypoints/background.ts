@@ -1,4 +1,19 @@
-import type { CapturePayload, CollectionDraft } from '../src/domain/types';
+import type { CaptureItem, CapturePayload, CollectionDraft } from '../src/domain/types';
+import {
+  cancelCaptureReservation,
+  cancelSubscription,
+  commitCapture,
+  createCheckout,
+  getAccountSnapshot,
+  protectAccountStorage,
+  reconcileCaptureReservation,
+  requireCaptureAccess,
+  reserveCapture,
+  signIn,
+  signOut,
+  signUp,
+} from '../src/account/gateway';
+import { assertCollectionCapacity } from '../src/domain/limits';
 import { captureTabAsPdf, hasDebuggerPermission } from '../src/pdf/chromium';
 import {
   isRuntimeMessage,
@@ -6,7 +21,14 @@ import {
   type RuntimeMessage,
   type RuntimeResponse,
 } from '../src/runtime/messages';
-import { addCapture, ensureDefaultCollection, getCollection } from '../src/storage/database';
+import {
+  addCapture,
+  captureBytes,
+  ensureDefaultCollection,
+  getCollection,
+  listPendingCaptureItems,
+  markCaptureReady,
+} from '../src/storage/database';
 
 function assertInjectable(tab: Browser.tabs.Tab): asserts tab is Browser.tabs.Tab & { id: number; url: string } {
   if (tab.id === undefined || !tab.url || !/^(https?|file):/i.test(tab.url)) {
@@ -48,7 +70,29 @@ async function storeCapture(
   const collection = await getCollection(collectionId);
   if (!collection) return { ok: false, error: 'La colección ya no existe.' };
   const faithfulPdf = await captureVisualPdf(tabId, collection);
-  const item = await addCapture(collectionId, payload, faithfulPdf);
+  const bytes = captureBytes(payload, faithfulPdf);
+  assertCollectionCapacity(collection, bytes);
+  const operationId = crypto.randomUUID();
+  const reservation = await reserveCapture(operationId, bytes);
+  let item: CaptureItem;
+  try {
+    item = await addCapture(collectionId, payload, faithfulPdf, {
+      reservationId: reservation.id,
+    });
+  } catch (error) {
+    await cancelCaptureReservation(reservation.id).catch(() => undefined);
+    throw error;
+  }
+
+  try {
+    await commitCapture(reservation.id);
+    item = await markCaptureReady(item.id);
+  } catch {
+    return {
+      ok: false,
+      error: 'La captura quedó guardada y pendiente de validar. Abre el administrador con conexión para recuperarla.',
+    };
+  }
   await browser.action.setBadgeBackgroundColor({ color: '#16a34a', tabId });
   await browser.action.setBadgeText({ text: '✓', tabId });
   setTimeout(() => void browser.action.setBadgeText({ text: '', tabId }), 2500);
@@ -58,6 +102,7 @@ async function storeCapture(
 async function handleFullCapture(
   message: Extract<RuntimeMessage, { type: 'capture/full' }>,
 ): Promise<RuntimeResponse> {
+  await requireCaptureAccess();
   const tab = await activeTab();
   await injectCaptureRuntime(tab.id);
   const response: RuntimeResponse<CapturePayload> = await browser.tabs.sendMessage(tab.id, {
@@ -71,6 +116,7 @@ async function handleFullCapture(
 async function handleSelectionStart(
   message: Extract<RuntimeMessage, { type: 'capture/select' }>,
 ): Promise<RuntimeResponse> {
+  await requireCaptureAccess();
   const tab = await activeTab();
   await injectCaptureRuntime(tab.id);
   await browser.tabs.sendMessage(tab.id, {
@@ -80,6 +126,19 @@ async function handleSelectionStart(
     faithful: true,
   } satisfies RuntimeMessage);
   return { ok: true };
+}
+
+async function reconcilePendingCaptures(): Promise<number> {
+  await requireCaptureAccess();
+  const pending = await listPendingCaptureItems();
+  let recovered = 0;
+  for (const item of pending) {
+    if (!item.quotaReservationId) continue;
+    await reconcileCaptureReservation(item.quotaReservationId);
+    await markCaptureReady(item.id);
+    recovered += 1;
+  }
+  return recovered;
 }
 
 async function handleMessage(
@@ -93,12 +152,33 @@ async function handleMessage(
     if (tabId === undefined) return { ok: false, error: 'Se perdió la pestaña capturada.' };
     return storeCapture(tabId, message.collectionId, message.payload);
   }
+  if (message.type === 'account/snapshot') return { ok: true, data: await getAccountSnapshot() };
+  if (message.type === 'account/sign-in') return { ok: true, data: await signIn(message.email, message.password) };
+  if (message.type === 'account/sign-up') return { ok: true, data: await signUp(message.email, message.password) };
+  if (message.type === 'account/sign-out') return { ok: true, data: await signOut() };
+  if (message.type === 'billing/checkout') {
+    const checkout = await createCheckout(message.kind, message.amountCents);
+    await browser.tabs.create({ url: checkout.checkoutUrl });
+    return { ok: true, data: { opened: true } };
+  }
+  if (message.type === 'billing/cancel-subscription') {
+    return { ok: true, data: await cancelSubscription() };
+  }
+  if (message.type === 'quota/reconcile') {
+    return { ok: true, data: { recovered: await reconcilePendingCaptures() } };
+  }
   return { ok: false, error: 'Mensaje no reconocido por el coordinador.' };
 }
 
 export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => {
     void ensureDefaultCollection();
+    void protectAccountStorage();
+  });
+
+  browser.runtime.onStartup.addListener(() => {
+    void protectAccountStorage();
+    void reconcilePendingCaptures().catch(() => undefined);
   });
 
   browser.runtime.onMessage.addListener((value: unknown, sender, sendResponse) => {

@@ -3,146 +3,147 @@
 
   # Colección Web PDF
 
-  **Captura páginas y estados de aplicaciones web como un único PDF visual, sin subir su contenido a un servidor.**
+  **Reúne páginas, secciones y estados de una web en un único PDF visual.**
 
   Manifest V3 · WXT · React · TypeScript · Chrome · Opera GX
 </div>
 
-## Qué problema resuelve
+## Qué hace
 
-Una web moderna puede repartir su contenido entre rutas, filtros, pestañas y estados SPA, incluso manteniendo la misma URL. Colección Web PDF permite guardar cada estado como una vista independiente, ordenarlas y exportarlas juntas.
+Colección Web PDF conserva el estado actual de una página con imágenes, estilos, fondos, enlaces y texto seleccionable. Cada ruta, filtro, pestaña o estado SPA se añade manualmente como una vista independiente, incluso cuando varias vistas comparten la misma URL.
 
-La extensión no rastrea el sitio automáticamente: tú decides qué páginas o secciones forman parte del documento.
+- Captura una web completa o múltiples secciones.
+- Prepara imágenes y contenido lazy-load con auto-scroll acotado.
+- Restaura el scroll y limpia la superficie temporal después de capturar.
+- Guarda un PDF visual y una versión semántica para lectura por IA.
+- Permite previsualizar, renombrar, reordenar, eliminar y volver a exportar.
+- Genera portada, índice, separadores, URL y fecha de captura.
+- Mantiene el contenido web, las imágenes, las colecciones y los PDF en el dispositivo.
 
-## Funciones actuales
+## Planes y límites
 
-- Captura visual de una página completa con imágenes, estilos, fondos, enlaces y texto seleccionable.
-- Selección de múltiples secciones y exclusiones internas mediante una interfaz aislada con Shadow DOM.
-- Preparación de contenido dinámico con auto-scroll acotado y restauración de la posición original.
-- Colecciones persistentes sin límite de vistas y con un máximo local de 300 MB cada una.
-- Capturas inmutables: dos estados distintos con la misma URL se conservan como elementos independientes.
-- Administrador para renombrar, previsualizar, reordenar, eliminar y volver a exportar vistas.
-- PDF visual con portada, índice, separadores, URL y fecha de captura.
-- Versión secundaria para lectura por IA con encabezados, párrafos, tablas, listas, código, enlaces y metadatos.
-- Interfaz en español preparada para internacionalización.
+| Plan | Capturas | Precio |
+| --- | --- | --- |
+| Gratuito | 150 MB cada 15 días | USD 0 |
+| Premium | Sin cuota remota de captura | USD 2,49 al mes |
 
-## Cómo funciona
+Cada colección conserva un límite local de 300 MB y no tiene límite de vistas. Exportar de nuevo una captura existente no consume cuota.
 
-1. Crea o elige una colección desde el popup.
-2. Abre el estado de la web que quieras conservar.
-3. Pulsa **Web completa** o **Secciones**.
-4. Confirma la captura después de preparar el contenido dinámico.
-5. Repite el proceso para otras rutas, filtros o estados.
-6. Abre el administrador, ajusta el orden y exporta el PDF visual o la versión IA.
+La primera contribución de USD 4 o más incluye tres meses de Premium, una sola vez por cuenta. Las contribuciones posteriores apoyan el proyecto sin añadir meses. La suscripción y los aportes se procesan en PayPal; la extensión nunca recibe datos de tarjeta.
 
-El PDF visual se genera con `Page.printToPDF` mediante la API `debugger` de Chromium. Si el permiso no está disponible, DevTools ya usa la pestaña o la navegación cambia durante el proceso, la captura se cancela sin guardar una vista parcial.
+Al cancelar una suscripción se detiene la siguiente renovación y el acceso se conserva hasta terminar el período ya pagado. Un reembolso o reverso revoca el tiempo restante asociado a ese pago.
+
+## Flujo de captura seguro
+
+1. La extensión genera localmente el PDF visual y el documento semántico.
+2. Calcula sus bytes reales y valida el límite local de la colección.
+3. Reserva exactamente esos bytes en la cuenta con una operación idempotente.
+4. Guarda ambos artefactos en IndexedDB como una sola captura pendiente.
+5. Confirma la reserva y habilita la vista para previsualizar y exportar.
+
+Una interrupción después del guardado no duplica el consumo: el administrador puede reconciliar la captura pendiente. Borrar datos locales o reinstalar la extensión no reinicia el ciclo de la cuenta.
 
 ## Privacidad
 
-El contenido capturado, los PDF y las colecciones se procesan y almacenan localmente en el navegador mediante IndexedDB. La versión actual no incluye telemetría, cuenta de usuario ni backend, y no solicita acceso permanente a todos los sitios con `<all_urls>`.
+El HTML capturado, las imágenes, las URL, los títulos, los documentos semánticos y los PDF no se envían al backend. Supabase recibe únicamente los datos necesarios para cuenta y control de acceso: identificador de usuario, correo de autenticación, cantidad exacta de bytes, fechas del ciclo, reservas y estado de pago.
 
-El permiso `debugger` se utiliza exclusivamente para pedir al navegador el PDF visual de la pestaña elegida por el usuario.
+No hay telemetría ni carga de código remoto. El permiso `debugger` se utiliza exclusivamente para solicitar a Chromium el PDF visual de la pestaña elegida por el usuario.
 
-## Instalar para desarrollo
+## Desarrollo de la extensión
 
 ### Requisitos
 
 - Node.js 22 o posterior.
 - npm.
-- Chrome u Opera GX.
+- Chrome, Opera GX o Chromium para las pruebas E2E.
 
 ```powershell
 git clone https://github.com/Suggus1899/page_to_pdf.git
 cd page_to_pdf
 npm install
+Copy-Item .env.example .env
 npm run build
 ```
 
-El paquete Chromium queda en `.output/chrome-mv3`.
+Configura en `.env` únicamente los valores públicos del cliente:
 
-### Cargar en Chrome
-
-1. Abre `chrome://extensions`.
-2. Activa **Modo desarrollador**.
-3. Pulsa **Cargar descomprimida**.
-4. Selecciona la carpeta `.output/chrome-mv3`.
-
-### Cargar en Opera GX
-
-1. Abre `opera://extensions`.
-2. Activa **Modo desarrollador**.
-3. Pulsa **Cargar descomprimida**.
-4. Selecciona la misma carpeta `.output/chrome-mv3`.
-
-No se necesita un build diferente para Opera GX.
-
-## Desarrollo
-
-```powershell
-npm run dev        # WXT en modo desarrollo
-npm run typecheck  # TypeScript estricto
-npm run lint       # ESLint
-npm test           # Vitest
-npm run build      # Build Chromium MV3
-npm run verify     # Typecheck, lint, pruebas y build
+```dotenv
+WXT_SUPABASE_URL=https://TU_PROYECTO.supabase.co
+WXT_SUPABASE_PUBLISHABLE_KEY=sb_publishable_REEMPLAZAR
 ```
 
-Para ejecutar el E2E con un navegador instalado:
+El build queda en `.output/chrome-mv3`. Cárgalo como extensión descomprimida desde `chrome://extensions` u `opera://extensions` con el modo desarrollador activado.
+
+## Backend de cuenta y pagos
+
+El directorio `supabase/` contiene la migración PostgreSQL, las Edge Functions y una prueba de base de datos. Se requieren un proyecto Supabase y una cuenta PayPal Business.
 
 ```powershell
-$env:BROWSER_EXECUTABLE='C:\Program Files\Google\Chrome\Application\chrome.exe'
-npm run test:e2e
+npx supabase login
+npx supabase link --project-ref TU_PROJECT_REF
+npx supabase db push
+npx supabase secrets set --env-file supabase/functions/.env
+npx supabase functions deploy billing-api
+npx supabase functions deploy paypal-webhook --no-verify-jwt
+```
 
-$env:BROWSER_EXECUTABLE='C:\Users\PC\AppData\Local\Programs\Opera GX\opera.exe'
+Antes de desplegar:
+
+1. Activa la confirmación de correo en Supabase Auth y configura una URL pública de redirección.
+2. Crea en PayPal un producto y un plan mensual de USD 2,49.
+3. Registra la URL pública de `paypal-webhook` y guarda su Webhook ID.
+4. Copia `supabase/functions/.env.example` a `supabase/functions/.env` y completa los secretos localmente.
+5. Configura páginas HTTPS públicas de retorno y cancelación para PayPal.
+
+Nunca incluyas `SUPABASE_SERVICE_ROLE_KEY`, `PAYPAL_CLIENT_SECRET` ni otros secretos del servidor en las variables `WXT_*` o en el paquete de la extensión.
+
+## Comandos
+
+```powershell
+npm run dev
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run verify
 npm run test:e2e
 ```
 
-Chrome estable puede restringir la carga automatizada de extensiones. En ese caso, Playwright valida con Chromium y la revisión final se realiza cargando manualmente el mismo paquete.
+Con Supabase CLI instalado, la política de cuota se valida con:
+
+```powershell
+npx supabase test db
+```
 
 ## Arquitectura
 
 ```text
 entrypoints/
-  background.ts       Orquestación de captura y persistencia
-  capture.ts          Runtime inyectado en la página
-  popup/              Acciones rápidas y ajustes del PDF
-  manager/            Administración y exportación
+  background.ts        Captura, cuota, persistencia y mensajes de cuenta
+  capture.ts           Runtime aislado que se inyecta en la página
+  popup/               Captura rápida, cuenta y ajustes
+  manager/             Colecciones, exportación y facturación
 src/
-  capture/             Auto-scroll, extracción y selección
-  pdf/                 Adaptador Chromium para printToPDF
-  export/              Generadores visual e IA
-  storage/             IndexedDB
-  domain/              Tipos y reglas de capacidad
-tests/                 Unitarias, componentes, E2E y sitio de prueba
+  account/             Sesión Supabase, cuota y UI de cuenta
+  capture/             Auto-scroll, extracción y selector visual
+  pdf/                 Adaptador Chromium para Page.printToPDF
+  export/              Generadores visual y semántico
+  storage/             IndexedDB y reconciliación local
+  domain/              Tipos y límite local de 300 MB
+supabase/
+  migrations/          Esquema, RLS y operaciones atómicas
+  functions/           Checkout PayPal y webhook verificado
+  tests/               Pruebas SQL de cuota e idempotencia
 ```
 
-Las APIs específicas del navegador permanecen detrás de adaptadores pequeños. La generación pesada de PDF se ejecuta en un Web Worker y todo el código necesario se incluye en el paquete de la extensión.
+La extensión usa una clave pública de Supabase y conserva la sesión en `storage.local`, restringida a contextos de confianza. Toda mutación de cuota ocurre en funciones SQL atómicas; solo un webhook PayPal verificado puede conceder o revocar Premium.
 
-## Sitio de prueba
+## Compatibilidad y límites conocidos
 
-`tests/fixtures/site/index.html` reúne los casos límite usados durante el desarrollo:
+El mismo build Chromium MV3 se usa en Chrome y Opera GX. No pueden capturarse páginas internas del navegador, Chrome Web Store, visores PDF protegidos, iframes de otro origen, shadow roots cerrados ni contenido DRM. Videos, animaciones y controles interactivos se representan por el estado estático que Chromium pueda imprimir.
 
-- artículo largo y lazy-load;
-- scroll anidado;
-- dos estados SPA bajo la misma URL;
-- tablas, código y formularios;
-- iframe externo, canvas e imagen fallida.
+Sin conexión se pueden consultar y exportar capturas listas, pero no crear nuevas porque la cuota no puede verificarse. Una extensión desempaquetada y modificada por el usuario no puede considerarse un cliente confiable; la protección comercial efectiva corresponde al paquete oficial distribuido.
 
-## Límites conocidos
+## Estado del proyecto
 
-No pueden capturarse páginas internas del navegador, Chrome Web Store, visores PDF protegidos, iframes de otro origen, shadow roots cerrados, contenido DRM ni sesiones de inicio de sesión automatizadas. Videos, animaciones y controles interactivos se representan únicamente por el estado estático que el navegador pueda imprimir.
-
-## Hoja de ruta
-
-- Cuenta de usuario con cuota gratuita de 150 MB cada 15 días.
-- Suscripción Premium y apartado para apoyar el proyecto.
-- Adaptador específico para Firefox.
-
-Estas funciones están planificadas y todavía no forman parte del build actual.
-
-## Contribuir
-
-1. Crea una rama desde la rama principal del proyecto.
-2. Mantén TypeScript estricto y evita lógica remota en el paquete MV3.
-3. Añade o actualiza la prueba mínima que cubra el cambio.
-4. Ejecuta `npm run verify` antes de abrir un pull request.
+El repositorio es público y la extensión está en desarrollo. Las capturas existentes anteriores al sistema de cuenta permanecen locales, exportables y no consumen cuota retroactiva.

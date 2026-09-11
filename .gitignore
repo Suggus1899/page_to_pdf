@@ -6,3 +6,13 @@ playwright-report/
 test-results/
 .devin/
 *.log
+.env
+.env.*.local
+supabase/.temp/
+AGENTS.md
+**/AGENTS.md
+CLAUDE.md
+**/CLAUDE.md
+.agents/
+.codex/
+**/SKILL.md

@@ -60,7 +60,25 @@ describe('administrador', () => {
     download.mockReset();
     download.mockResolvedValue(1);
     vi.mocked(createPdfInWorker).mockClear();
-    vi.stubGlobal('browser', { downloads: { download } });
+    vi.stubGlobal('browser', {
+      downloads: { download },
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValue({
+          ok: true,
+          data: {
+            configured: true,
+            signedIn: true,
+            email: 'prueba@example.com',
+            emailVerified: true,
+            plan: 'free',
+            freeBytesLimit: 150 * 1024 * 1024,
+            freeBytesUsed: 0,
+            subscriptionStatus: 'none',
+            supportBenefitUsed: false,
+          },
+        }),
+      },
+    });
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       value: vi.fn(() => 'blob:pdf-de-prueba'),
@@ -142,5 +160,22 @@ describe('administrador', () => {
     fireEvent(dialog, new Event('cancel', { cancelable: true }));
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
     expect(previewButton).toHaveFocus();
+  });
+
+  it('bloquea las exportaciones mientras una captura está pendiente', async () => {
+    await clearAllData();
+    const collection = await createCollection('Pendiente');
+    await addCapture(
+      collection.id,
+      payload('Vista pendiente'),
+      new ArrayBuffer(8),
+      { reservationId: 'reservation-1' },
+    );
+    render(<ManagerApp />);
+
+    expect(await screen.findByText('Validación pendiente')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Exportar PDF visual' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Exportar versión IA' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Recuperar ahora' })).toBeEnabled();
   });
 });

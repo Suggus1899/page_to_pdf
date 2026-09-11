@@ -57,6 +57,10 @@ function semanticBytes(document: SemanticDocument): number {
   return new TextEncoder().encode(JSON.stringify(document)).byteLength;
 }
 
+export function captureBytes(payload: CapturePayload, faithfulPdf?: ArrayBuffer): number {
+  return semanticBytes(payload.document) + (faithfulPdf?.byteLength ?? 0);
+}
+
 export async function listCollections(): Promise<CollectionDraft[]> {
   const database = await getDatabase();
   const collections = await database.getAll('collections');
@@ -159,6 +163,7 @@ export async function addCapture(
   collectionId: string,
   payload: CapturePayload,
   faithfulPdf?: ArrayBuffer,
+  quota?: { reservationId: string },
 ): Promise<CaptureItem> {
   const database = await getDatabase();
   const transaction = database.transaction(
@@ -169,7 +174,7 @@ export async function addCapture(
   if (!collection) throw new Error('La colección ya no existe.');
   const readableBytes = semanticBytes(payload.document);
   const faithfulBytes = faithfulPdf?.byteLength ?? 0;
-  const bytesUsed = readableBytes + faithfulBytes;
+  const bytesUsed = captureBytes(payload, faithfulPdf);
   assertCollectionCapacity(collection, bytesUsed);
 
   const itemId = crypto.randomUUID();
@@ -182,7 +187,8 @@ export async function addCapture(
     capturedAt: payload.capturedAt,
     viewport: payload.viewport,
     scope: payload.scope,
-    status: 'ready',
+    status: quota ? 'quota-pending' : 'ready',
+    ...(quota ? { quotaReservationId: quota.reservationId } : {}),
     readableAvailable: true,
     faithfulAvailable: Boolean(faithfulPdf),
     bytesUsed,
@@ -220,6 +226,23 @@ export async function addCapture(
   });
   await transaction.done;
   return item;
+}
+
+export async function markCaptureReady(itemId: string): Promise<CaptureItem> {
+  const database = await getDatabase();
+  const item = await database.get('items', itemId);
+  if (!item) throw new Error('La vista pendiente ya no existe.');
+  const ready: CaptureItem = { ...item, status: 'ready' };
+  delete ready.quotaReservationId;
+  await database.put('items', ready);
+  return ready;
+}
+
+export async function listPendingCaptureItems(): Promise<CaptureItem[]> {
+  const database = await getDatabase();
+  return (await database.getAll('items')).filter(
+    (item) => item.status === 'quota-pending' && Boolean(item.quotaReservationId),
+  );
 }
 
 export async function renameCaptureItem(itemId: string, title: string): Promise<void> {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AccountPanel } from '../../src/account/AccountPanel';
 import type {
   CaptureItem,
   CollectionDraft,
@@ -26,6 +27,10 @@ import {
 } from '../../src/storage/database';
 import { buildPdfFilename, formatBytes } from '../../src/utils/filename';
 import { BrandMark } from '../../src/ui/BrandMark';
+import {
+  MESSAGE_PROTOCOL_VERSION,
+  type RuntimeResponse,
+} from '../../src/runtime/messages';
 import { SemanticPreview } from './SemanticPreview';
 
 interface PreviewState {
@@ -106,6 +111,7 @@ export function ManagerApp() {
   const [preview, setPreview] = useState<PreviewState>();
   const [progress, setProgress] = useState<ProgressState>();
   const [notice, setNotice] = useState<{ text: string; error: boolean }>();
+  const [accountRefresh, setAccountRefresh] = useState(0);
 
   const reportError = useCallback((error: unknown): void => {
     setNotice({
@@ -143,6 +149,7 @@ export function ManagerApp() {
   useEffect(() => {
     const onFocus = (): void => {
       runAction(() => refresh(selectedId));
+      setAccountRefresh((value) => value + 1);
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -224,6 +231,10 @@ export function ManagerApp() {
     profile: 'readable' | 'faithful',
   ): Promise<void> => {
     if (!selected || items.length === 0) return;
+    if (items.some((item) => item.status !== 'ready')) {
+      setNotice({ text: 'Recupera las capturas pendientes antes de exportar.', error: true });
+      return;
+    }
     setNotice(undefined);
     setProgress({ percent: 1, label: 'Preparando artefactos' });
     try {
@@ -291,11 +302,28 @@ export function ManagerApp() {
     await refresh();
   };
 
+  const reconcilePending = async (): Promise<void> => {
+    const response: RuntimeResponse<{ recovered: number }> = await browser.runtime.sendMessage({
+      version: MESSAGE_PROTOCOL_VERSION,
+      type: 'quota/reconcile',
+    });
+    if (!response.ok) throw new Error(response.error || 'No se pudieron recuperar las capturas.');
+    await refresh(selectedId);
+    setAccountRefresh((value) => value + 1);
+    setNotice({
+      text: response.data?.recovered
+        ? `${response.data.recovered} captura(s) recuperada(s).`
+        : 'No había capturas pendientes por recuperar.',
+      error: false,
+    });
+  };
+
   if (!selected) {
     return <main className="empty-state">Cargando colecciones…</main>;
   }
 
-  const allFaithful = items.length > 0 && items.every((item) => item.faithfulAvailable);
+  const pendingCount = items.filter((item) => item.status === 'quota-pending').length;
+  const allFaithful = items.length > 0 && pendingCount === 0 && items.every((item) => item.faithfulAvailable);
   const missingFaithful = items.filter((item) => !item.faithfulAvailable).length;
 
   return (
@@ -367,7 +395,7 @@ export function ManagerApp() {
             </button>
             <button
               className="button"
-              disabled={items.length === 0 || Boolean(progress)}
+              disabled={items.length === 0 || pendingCount > 0 || Boolean(progress)}
               onClick={() => void downloadPdf('readable')}
             >
               Exportar versión IA
@@ -377,6 +405,8 @@ export function ManagerApp() {
             </button>
           </div>
         </header>
+
+        <AccountPanel refreshToken={accountRefresh} />
 
         <section className="card settings" aria-label="Configuración de impresión">
           <div className="settings-heading">
@@ -461,6 +491,13 @@ export function ManagerApp() {
           </div>
         ) : null}
 
+        {pendingCount > 0 ? (
+          <div className="warning pending-warning" role="status">
+            <span>{pendingCount} {pendingCount === 1 ? 'captura está pendiente' : 'capturas están pendientes'} de validar y no se pueden exportar.</span>
+            <button className="button" onClick={() => runAction(reconcilePending)}>Recuperar ahora</button>
+          </div>
+        ) : null}
+
         {progress ? (
           <section className="card progress-card" aria-live="polite">
             <strong>{progress.label}</strong>
@@ -536,6 +573,7 @@ export function ManagerApp() {
                           {item.faithfulAvailable ? 'Versión IA' : 'Solo versión IA'}
                         </span>
                         {item.faithfulAvailable ? <span className="chip visual">PDF visual</span> : null}
+                        {item.status === 'quota-pending' ? <span className="chip pending">Validación pendiente</span> : null}
                       </div>
                       <div className="item-meta muted">
                         <span>{formatBytes(item.bytesUsed)}</span>
@@ -549,7 +587,7 @@ export function ManagerApp() {
                     </button>
                     <button
                       className="button ghost"
-                      disabled={!item.faithfulAvailable}
+                      disabled={!item.faithfulAvailable || item.status !== 'ready'}
                       onClick={() => runAction(() => showFaithfulPreview(item))}
                     >
                       Ver PDF visual

@@ -66,7 +66,8 @@ test.describe('build Chromium sin empaquetar', () => {
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await expect(popup.locator('img.brand-mark')).toBeVisible();
     await expect(popup.getByRole('heading', { name: 'Colección Web PDF' })).toBeVisible();
-    await expect(popup.getByRole('button', { name: 'Capturar web completa' })).toBeEnabled();
+    await expect(popup.getByText('Cuenta pendiente de configuración')).toBeVisible();
+    await expect(popup.getByRole('button', { name: 'Capturar web completa' })).toBeDisabled();
     await expect(popup.getByRole('combobox', { name: 'Colección activa' })).toContainText(
       'Mi primera colección',
     );
