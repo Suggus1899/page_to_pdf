@@ -3,7 +3,6 @@ import type { CapturePayload } from '../src/domain/types';
 import {
   assertCollectionCapacity,
   MAX_COLLECTION_BYTES,
-  MAX_COLLECTION_ITEMS,
 } from '../src/domain/limits';
 import {
   addCapture,
@@ -85,23 +84,20 @@ describe('persistencia de colecciones', () => {
     expect((await getCollection(collection.id))?.itemCount).toBe(2);
   });
 
-  it('bloquea la vista 51 sin alterar el borrador previo', async () => {
-    const collection = await createCollection('Límite');
-    for (let index = 0; index < MAX_COLLECTION_ITEMS; index += 1) {
+  it('no limita la cantidad de vistas mientras haya espacio', async () => {
+    const collection = await createCollection('Sin límite de vistas');
+    for (let index = 0; index < 51; index += 1) {
       await addCapture(collection.id, payload('Vista ' + index));
     }
 
-    await expect(addCapture(collection.id, payload('Vista extra'))).rejects.toMatchObject({
-      code: 'item-limit',
-    });
-    expect((await getCollection(collection.id))?.itemCount).toBe(MAX_COLLECTION_ITEMS);
-    expect(await listCaptureItems(collection.id)).toHaveLength(MAX_COLLECTION_ITEMS);
+    expect((await getCollection(collection.id))?.itemCount).toBe(51);
+    expect(await listCaptureItems(collection.id)).toHaveLength(51);
   });
 
-  it('bloquea una captura antes de superar 250 MB', () => {
+  it('bloquea una captura antes de superar 300 MB', () => {
     expect(() =>
       assertCollectionCapacity(
-        { itemCount: 2, bytesUsed: MAX_COLLECTION_BYTES - 10 },
+        { bytesUsed: MAX_COLLECTION_BYTES - 10 },
         11,
       ),
     ).toThrowError(
@@ -109,7 +105,7 @@ describe('persistencia de colecciones', () => {
     );
     expect(() =>
       assertCollectionCapacity(
-        { itemCount: 2, bytesUsed: MAX_COLLECTION_BYTES - 10 },
+        { bytesUsed: MAX_COLLECTION_BYTES - 10 },
         10,
       ),
     ).not.toThrow();

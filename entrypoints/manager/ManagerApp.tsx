@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   CaptureItem,
   CollectionDraft,
@@ -25,11 +25,13 @@ import {
   updateCollection,
 } from '../../src/storage/database';
 import { buildPdfFilename, formatBytes } from '../../src/utils/filename';
+import { BrandMark } from '../../src/ui/BrandMark';
 import { SemanticPreview } from './SemanticPreview';
 
 interface PreviewState {
   title: string;
   kind: 'readable' | 'faithful';
+  returnFocus: HTMLElement | null;
   document?: SemanticDocument;
   url?: string;
 }
@@ -37,6 +39,63 @@ interface PreviewState {
 interface ProgressState {
   percent: number;
   label: string;
+}
+
+interface PreviewDialogProps {
+  preview: PreviewState;
+  returnFocus: HTMLElement | null;
+  onClose: () => void;
+}
+
+function PreviewDialog({ preview, returnFocus, onClose }: PreviewDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    } else {
+      dialog?.setAttribute('open', '');
+    }
+    return () => returnFocus?.focus();
+  }, [returnFocus]);
+
+  const close = (): void => {
+    const dialog = dialogRef.current;
+    if (dialog && typeof dialog.close === 'function') {
+      dialog.close();
+    } else {
+      onClose();
+    }
+  };
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="preview-dialog"
+      aria-labelledby="preview-title"
+      onCancel={onClose}
+      onClose={onClose}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
+      <section className="preview-dialog-frame">
+        <header>
+          <div>
+            <span className="eyebrow">Vista previa</span>
+            <strong id="preview-title">{preview.title}</strong>
+          </div>
+          <span className="chip">{preview.kind === 'readable' ? 'Versión IA' : 'PDF visual'}</span>
+          <button className="button" autoFocus onClick={close}>Cerrar</button>
+        </header>
+        <div className="preview-content">
+          {preview.document ? <SemanticPreview document={preview.document} /> : null}
+          {preview.url ? <iframe src={preview.url} title={'PDF visual de ' + preview.title} /> : null}
+        </div>
+      </section>
+    </dialog>
+  );
 }
 
 export function ManagerApp() {
@@ -143,16 +202,22 @@ export function ManagerApp() {
   };
 
   const showReadablePreview = async (item: CaptureItem): Promise<void> => {
+    const returnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     const artifact = await getReadableArtifact(item.id);
     if (!artifact) throw new Error('No se encontró el contenido legible.');
-    setPreview({ title: item.title, kind: 'readable', document: artifact.data });
+    setPreview({ title: item.title, kind: 'readable', returnFocus, document: artifact.data });
   };
 
   const showFaithfulPreview = async (item: CaptureItem): Promise<void> => {
+    const returnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     const artifact = await getFaithfulArtifact(item.id);
     if (!artifact) throw new Error('Esta vista no tiene un PDF visual.');
     const url = URL.createObjectURL(new Blob([artifact.data], { type: 'application/pdf' }));
-    setPreview({ title: item.title, kind: 'faithful', url });
+    setPreview({ title: item.title, kind: 'faithful', returnFocus, url });
   };
 
   const downloadPdf = async (
@@ -237,10 +302,16 @@ export function ManagerApp() {
     <main className="manager-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="logo" aria-hidden="true">P</div>
-          <h1>Colección Web PDF</h1>
+          <BrandMark />
+          <div>
+            <h1>Colección Web PDF</h1>
+            <span>Archivo multivista</span>
+          </div>
         </div>
-        <strong>Colecciones</strong>
+        <div className="sidebar-heading">
+          <strong>Colecciones</strong>
+          <span>{collections.length}</span>
+        </div>
         <nav className="collection-list" aria-label="Colecciones guardadas">
           {collections.map((collection) => (
             <button
@@ -255,12 +326,14 @@ export function ManagerApp() {
         </nav>
         <div className="sidebar-actions">
           <button className="button primary" onClick={() => runAction(addCollection)}>
-            Nueva colección
+            <span aria-hidden="true">＋</span> Nueva colección
           </button>
           <button className="button ghost" onClick={() => runAction(() => refresh(selectedId))}>
             Actualizar
           </button>
-          <button className="button danger" onClick={() => runAction(eraseEverything)}>
+        </div>
+        <div className="sidebar-danger">
+          <button className="button danger-ghost" onClick={() => runAction(eraseEverything)}>
             Borrar todos los datos
           </button>
         </div>
@@ -268,7 +341,8 @@ export function ManagerApp() {
 
       <section className="workspace">
         <header className="workspace-header">
-          <div>
+          <div className="workspace-heading">
+            <span className="eyebrow">Colección activa</span>
             <label className="sr-only" htmlFor="collection-title">Nombre de colección</label>
             <input
               id="collection-title"
@@ -277,9 +351,10 @@ export function ManagerApp() {
               onChange={(event) => setNameDraft(event.target.value)}
               onBlur={() => runAction(saveCollectionName)}
             />
-            <p className="muted">
-              {selected.itemCount}/50 vistas · {formatBytes(selected.bytesUsed)} de 250 MB
-            </p>
+            <div className="collection-summary muted">
+              <span>{selected.itemCount} {selected.itemCount === 1 ? 'vista' : 'vistas'}</span>
+              <span>{formatBytes(selected.bytesUsed)} de 300 MB</span>
+            </div>
           </div>
           <div className="header-actions">
             <button
@@ -297,77 +372,86 @@ export function ManagerApp() {
             >
               Exportar versión IA
             </button>
-            <button className="button danger" onClick={() => runAction(removeSelectedCollection)}>
+            <button className="button danger-ghost" onClick={() => runAction(removeSelectedCollection)}>
               Eliminar colección
             </button>
           </div>
         </header>
 
         <section className="card settings" aria-label="Configuración de impresión">
-          <label className="field">
-            <span>Papel</span>
-            <select
-              value={selected.printSettings.paper}
-              onChange={(event) => runAction(() => updateSettings({
-                printSettings: { paper: event.target.value as 'letter' | 'a4' },
-              }))}
-            >
-              <option value="letter">Carta</option>
-              <option value="a4">A4</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Orientación</span>
-            <select
-              value={selected.printSettings.orientation}
-              onChange={(event) => runAction(() => updateSettings({
-                printSettings: {
-                  orientation: event.target.value as 'portrait' | 'landscape',
-                },
-              }))}
-            >
-              <option value="portrait">Vertical</option>
-              <option value="landscape">Horizontal</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Margen</span>
-            <select
-              value={selected.printSettings.marginInches}
-              onChange={(event) => runAction(() => updateSettings({
-                printSettings: { marginInches: Number(event.target.value) },
-              }))}
-            >
-              <option value="0.25">Estrecho</option>
-              <option value="0.5">Normal</option>
-              <option value="0.75">Amplio</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Escala visual</span>
-            <select
-              value={selected.printSettings.scale}
-              onChange={(event) => runAction(() => updateSettings({
-                printSettings: { scale: Number(event.target.value) },
-              }))}
-            >
-              <option value="0.75">75%</option>
-              <option value="0.9">90%</option>
-              <option value="1">100%</option>
-              <option value="1.1">110%</option>
-              <option value="1.25">125%</option>
-            </select>
-          </label>
-          <label className="faithful-toggle">
-            <input
-              type="checkbox"
-              checked={selected.printSettings.printBackground}
-              onChange={(event) => runAction(() => updateSettings({
-                printSettings: { printBackground: event.target.checked },
-              }))}
-            />
-            <span><strong>Imprimir fondos</strong><small>Aplica al PDF visual.</small></span>
-          </label>
+          <div className="settings-heading">
+            <span className="settings-icon" aria-hidden="true">Aa</span>
+            <div>
+              <h2>Ajustes del PDF visual</h2>
+              <p>Formato aplicado a esta colección</p>
+            </div>
+          </div>
+          <div className="settings-fields">
+            <label className="field">
+              <span>Papel</span>
+              <select
+                value={selected.printSettings.paper}
+                onChange={(event) => runAction(() => updateSettings({
+                  printSettings: { paper: event.target.value as 'letter' | 'a4' },
+                }))}
+              >
+                <option value="letter">Carta</option>
+                <option value="a4">A4</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Orientación</span>
+              <select
+                value={selected.printSettings.orientation}
+                onChange={(event) => runAction(() => updateSettings({
+                  printSettings: {
+                    orientation: event.target.value as 'portrait' | 'landscape',
+                  },
+                }))}
+              >
+                <option value="portrait">Vertical</option>
+                <option value="landscape">Horizontal</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Margen</span>
+              <select
+                value={selected.printSettings.marginInches}
+                onChange={(event) => runAction(() => updateSettings({
+                  printSettings: { marginInches: Number(event.target.value) },
+                }))}
+              >
+                <option value="0.25">Estrecho</option>
+                <option value="0.5">Normal</option>
+                <option value="0.75">Amplio</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Escala visual</span>
+              <select
+                value={selected.printSettings.scale}
+                onChange={(event) => runAction(() => updateSettings({
+                  printSettings: { scale: Number(event.target.value) },
+                }))}
+              >
+                <option value="0.75">75%</option>
+                <option value="0.9">90%</option>
+                <option value="1">100%</option>
+                <option value="1.1">110%</option>
+                <option value="1.25">125%</option>
+              </select>
+            </label>
+            <label className="faithful-toggle">
+              <input
+                type="checkbox"
+                checked={selected.printSettings.printBackground}
+                onChange={(event) => runAction(() => updateSettings({
+                  printSettings: { printBackground: event.target.checked },
+                }))}
+              />
+              <span><strong>Imprimir fondos</strong><small>Incluye colores e imágenes.</small></span>
+            </label>
+          </div>
         </section>
 
         {missingFaithful > 0 ? (
@@ -391,97 +475,102 @@ export function ManagerApp() {
 
         {items.length === 0 ? (
           <section className="card empty-state">
+            <span className="empty-icon" aria-hidden="true">＋</span>
             <h2>La colección está vacía</h2>
-            <p className="muted">Abre el popup sobre una web para añadir la página o seleccionar secciones.</p>
+            <p className="muted">Abre la extensión sobre una web para capturarla completa o seleccionar secciones.</p>
           </section>
         ) : (
-          <section className="item-list" aria-label="Vistas capturadas">
-            {items.map((item, index) => (
-              <article className="card capture-item" key={item.id}>
-                <div className="item-order">
-                  <button
-                    aria-label={'Subir ' + item.title}
-                    disabled={index === 0}
-                    onClick={() => runAction(() => moveItem(index, -1))}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    aria-label={'Bajar ' + item.title}
-                    disabled={index === items.length - 1}
-                    onClick={() => runAction(() => moveItem(index, 1))}
-                  >
-                    ↓
-                  </button>
-                </div>
-                <div className="item-main">
-                  <label className="sr-only" htmlFor={'title-' + item.id}>Título de la vista</label>
-                  <input
-                    id={'title-' + item.id}
-                    className="item-title"
-                    value={item.title}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setItems((current) =>
-                        current.map((entry) =>
-                          entry.id === item.id ? { ...entry, title: value } : entry,
-                        ),
-                      );
-                    }}
-                    onBlur={(event) => runAction(() => renameCaptureItem(item.id, event.target.value))}
-                  />
-                  <a className="item-url" href={item.url} target="_blank" rel="noreferrer">{item.url}</a>
-                  <div className="chips">
-                    <span className="chip">{item.scope.kind === 'full-page' ? 'Página completa' : 'Secciones'}</span>
-                    <span className="chip good">
-                      {item.faithfulAvailable ? 'Versión IA' : 'Solo versión IA'}
-                    </span>
-                    {item.faithfulAvailable ? <span className="chip good">PDF visual</span> : null}
-                    <span className="chip">{formatBytes(item.bytesUsed)}</span>
-                    <span className="chip">{new Date(item.capturedAt).toLocaleString('es-VE')}</span>
+          <div className="captures">
+            <header className="list-header">
+              <div>
+                <span className="eyebrow">Contenido</span>
+                <h2>Vistas capturadas</h2>
+              </div>
+              <span className="list-count">{items.length} {items.length === 1 ? 'vista' : 'vistas'}</span>
+            </header>
+            <section className="item-list" aria-label="Vistas capturadas">
+              {items.map((item, index) => (
+                <article className="card capture-item" key={item.id}>
+                  <div className="item-order">
+                    <span className="order-number">{String(index + 1).padStart(2, '0')}</span>
+                    <div className="order-actions">
+                      <button
+                        aria-label={'Subir ' + item.title}
+                        disabled={index === 0}
+                        onClick={() => runAction(() => moveItem(index, -1))}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        aria-label={'Bajar ' + item.title}
+                        disabled={index === items.length - 1}
+                        onClick={() => runAction(() => moveItem(index, 1))}
+                      >
+                        ↓
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div className="item-actions">
-                  <button className="button ghost" onClick={() => runAction(() => showReadablePreview(item))}>
-                    Ver texto
-                  </button>
-                  <button
-                    className="button ghost"
-                    disabled={!item.faithfulAvailable}
-                    onClick={() => runAction(() => showFaithfulPreview(item))}
-                  >
-                    Ver PDF visual
-                  </button>
-                  <button className="button danger" onClick={() => runAction(() => removeItem(item))}>
-                    Eliminar
-                  </button>
-                </div>
-              </article>
-            ))}
-          </section>
+                  <div className="item-main">
+                    <label className="sr-only" htmlFor={'title-' + item.id}>Título de la vista</label>
+                    <input
+                      id={'title-' + item.id}
+                      className="item-title"
+                      value={item.title}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setItems((current) =>
+                          current.map((entry) =>
+                            entry.id === item.id ? { ...entry, title: value } : entry,
+                          ),
+                        );
+                      }}
+                      onBlur={(event) => runAction(() => renameCaptureItem(item.id, event.target.value))}
+                    />
+                    <a className="item-url" href={item.url} target="_blank" rel="noreferrer">
+                      {item.url}<span aria-hidden="true"> ↗</span>
+                    </a>
+                    <div className="item-details">
+                      <div className="chips">
+                        <span className="chip">{item.scope.kind === 'full-page' ? 'Página completa' : 'Secciones'}</span>
+                        <span className="chip good">
+                          {item.faithfulAvailable ? 'Versión IA' : 'Solo versión IA'}
+                        </span>
+                        {item.faithfulAvailable ? <span className="chip visual">PDF visual</span> : null}
+                      </div>
+                      <div className="item-meta muted">
+                        <span>{formatBytes(item.bytesUsed)}</span>
+                        <span>{new Date(item.capturedAt).toLocaleString('es-VE')}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="item-actions">
+                    <button className="button ghost" onClick={() => runAction(() => showReadablePreview(item))}>
+                      Ver texto
+                    </button>
+                    <button
+                      className="button ghost"
+                      disabled={!item.faithfulAvailable}
+                      onClick={() => runAction(() => showFaithfulPreview(item))}
+                    >
+                      Ver PDF visual
+                    </button>
+                    <button className="button danger-ghost" onClick={() => runAction(() => removeItem(item))}>
+                      Eliminar
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </section>
+          </div>
         )}
       </section>
 
       {preview ? (
-        <div
-          className="preview-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setPreview(undefined);
-          }}
-        >
-          <section className="card preview-dialog" role="dialog" aria-modal="true" aria-label={'Vista previa de ' + preview.title}>
-            <header>
-              <strong>{preview.title}</strong>
-              <span className="chip">{preview.kind === 'readable' ? 'Versión IA' : 'PDF visual'}</span>
-              <button className="button" autoFocus onClick={() => setPreview(undefined)}>Cerrar</button>
-            </header>
-            <div className="preview-content">
-              {preview.document ? <SemanticPreview document={preview.document} /> : null}
-              {preview.url ? <iframe src={preview.url} title={'PDF visual de ' + preview.title} /> : null}
-            </div>
-          </section>
-        </div>
+        <PreviewDialog
+          preview={preview}
+          returnFocus={preview.returnFocus}
+          onClose={() => setPreview(undefined)}
+        />
       ) : null}
     </main>
   );

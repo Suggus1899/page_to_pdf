@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PdfWorkerRequest } from '../src/export/types';
@@ -125,5 +125,22 @@ describe('administrador', () => {
     );
     act(() => finishPdf?.(new ArrayBuffer(8)));
     await waitFor(() => expect(download).toHaveBeenCalled());
+  });
+
+  it('abre la vista previa en un diálogo y devuelve el foco al cerrarla', async () => {
+    await clearAllData();
+    const collection = await createCollection('Visual');
+    await addCapture(collection.id, payload('Vista visual'), new ArrayBuffer(8));
+    const user = userEvent.setup();
+    render(<ManagerApp />);
+
+    const previewButton = await screen.findByRole('button', { name: 'Ver PDF visual' });
+    await user.click(previewButton);
+    const dialog = await screen.findByRole('dialog', { name: 'Vista visual' });
+    expect(dialog).toBeVisible();
+
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(previewButton).toHaveFocus();
   });
 });
