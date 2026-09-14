@@ -17,10 +17,19 @@ const MIN_PRINT_SCALE = 0.1;
 const MAX_PRINT_SCALE = 2;
 
 function decodeBase64(value: string): ArrayBuffer {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  // Decodifica por bloques: evita una cadena binaria gigante + bucle char a char
+  // sobre PDFs visuales de varios MB en el background.
+  const CHUNK = 0x8000;
+  const total = Math.ceil(value.length / 4) * 3;
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  const bytes = new Uint8Array(total - padding);
+  let offset = 0;
+  for (let index = 0; index < value.length; index += CHUNK) {
+    const binary = atob(value.slice(index, index + CHUNK));
+    for (let cursor = 0; cursor < binary.length && offset < bytes.length; cursor += 1) {
+      bytes[offset] = binary.charCodeAt(cursor);
+      offset += 1;
+    }
   }
   return bytes.buffer;
 }
@@ -63,14 +72,14 @@ export async function captureTabAsPdf(
     await chrome.debugger.attach(target, PROTOCOL_VERSION);
     attached = true;
     await chrome.debugger.sendCommand(target, 'Page.enable');
-    await chrome.debugger.sendCommand(target, 'Emulation.setEmulatedMedia', {
-      media: 'screen',
-    });
     const dimensions = paperDimensions(settings.paper);
-    const metrics = (await chrome.debugger.sendCommand(
-      target,
-      'Page.getLayoutMetrics',
-    )) as LayoutMetricsResult;
+    // Independientes entre sí: emulación de medio y métricas en paralelo (~1 RTT menos).
+    const [, metrics] = await Promise.all([
+      chrome.debugger.sendCommand(target, 'Emulation.setEmulatedMedia', {
+        media: 'screen',
+      }),
+      chrome.debugger.sendCommand(target, 'Page.getLayoutMetrics') as Promise<LayoutMetricsResult>,
+    ]);
     const result = (await chrome.debugger.sendCommand(target, 'Page.printToPDF', {
       landscape: settings.orientation === 'landscape',
       displayHeaderFooter: false,

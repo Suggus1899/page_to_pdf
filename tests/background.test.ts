@@ -174,7 +174,7 @@ describe('coordinador de captura visual', () => {
       collection.id,
       payload,
       visualPdf,
-      { reservationId: 'reservation-1' },
+      expect.objectContaining({ reservationId: 'reservation-1' }),
     );
     expect(mocks.commitCapture).toHaveBeenCalledWith('reservation-1');
     expect(mocks.markCaptureReady).toHaveBeenCalledWith('item-1');
@@ -210,7 +210,7 @@ describe('coordinador de captura visual', () => {
       collection.id,
       payload,
       expect.any(ArrayBuffer),
-      { reservationId: 'reservation-1' },
+      expect.objectContaining({ reservationId: 'reservation-1' }),
     );
     expect(mocks.markCaptureReady).not.toHaveBeenCalled();
     expect(mocks.cancelCaptureReservation).not.toHaveBeenCalled();

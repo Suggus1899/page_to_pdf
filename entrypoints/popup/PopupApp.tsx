@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccountPanel } from '../../src/account/AccountPanel';
 import type { AccountSnapshot } from '../../src/account/types';
 import type { CollectionDraft } from '../../src/domain/types';
@@ -62,7 +62,14 @@ export function PopupApp() {
     runAction(refresh);
   }, [refresh, runAction]);
 
-  const selected = collections.find((collection) => collection.id === selectedId);
+  const selected = useMemo(
+    () => collections.find((collection) => collection.id === selectedId),
+    [collections, selectedId],
+  );
+  const canCapture = useMemo(
+    () => Boolean(account?.configured && account.signedIn && account.emailVerified),
+    [account],
+  );
 
   const selectCollection = async (id: string): Promise<void> => {
     setSelectedId(id);
@@ -87,8 +94,11 @@ export function PopupApp() {
     printSettings: Partial<CollectionDraft['printSettings']>,
   ): Promise<void> => {
     if (!selected) return;
-    await updateCollection(selected.id, { printSettings });
-    await refresh();
+    // Optimista: actualiza la UI sin re-leer todas las colecciones de IndexedDB.
+    const updated = await updateCollection(selected.id, { printSettings });
+    setCollections((current) =>
+      current.map((collection) => (collection.id === updated.id ? updated : collection)),
+    );
   };
 
   const capture = async (
@@ -139,10 +149,6 @@ export function PopupApp() {
     await browser.tabs.create({ url: browser.runtime.getURL('/manager.html') });
     window.close();
   };
-
-  const canCapture = Boolean(
-    account?.configured && account.signedIn && account.emailVerified,
-  );
 
   return (
     <main className="popup">

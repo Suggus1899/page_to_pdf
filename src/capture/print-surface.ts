@@ -4,13 +4,8 @@ const PRINT_STYLE_ID = '__collection_web_pdf_print_style__';
 const STYLE_PROPERTIES = [
   'display',
   'box-sizing',
-  'position',
   'width',
   'max-width',
-  'min-width',
-  'height',
-  'max-height',
-  'min-height',
   'margin',
   'padding',
   'font',
@@ -19,32 +14,24 @@ const STYLE_PROPERTIES = [
   'font-weight',
   'font-style',
   'line-height',
-  'letter-spacing',
   'text-align',
-  'text-decoration',
   'white-space',
   'color',
-  'background',
   'background-color',
   'border',
-  'border-radius',
   'border-collapse',
-  'box-shadow',
   'list-style',
   'grid-template-columns',
-  'grid-template-rows',
   'gap',
   'flex',
-  'flex-direction',
-  'align-items',
-  'justify-content',
-  'object-fit',
   'overflow-wrap',
+  'object-fit',
 ] as const;
 
 function containsExcluded(element: Element, excluded: ReadonlySet<Element>): boolean {
+  if (excluded.size === 0) return false;
   for (const candidate of excluded) {
-    if (candidate === element) return true;
+    if (candidate === element || candidate.contains(element)) return true;
   }
   return false;
 }
@@ -80,6 +67,8 @@ function cloneNodeWithStyles(node: Node, excluded: ReadonlySet<Element>): Node |
   }
 
   const computed = getComputedStyle(node);
+  // Poda subárboles ocultos: evita clonar y copiar estilos de ramas invisibles.
+  if (computed.display === 'none' || computed.visibility === 'hidden') return undefined;
   for (const property of STYLE_PROPERTIES) {
     const value = computed.getPropertyValue(property);
     if (value) clone.style.setProperty(property, value, computed.getPropertyPriority(property));

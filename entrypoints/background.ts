@@ -1,18 +1,5 @@
 import type { CaptureItem, CapturePayload, CollectionDraft } from '../src/domain/types';
-import {
-  cancelCaptureReservation,
-  cancelSubscription,
-  commitCapture,
-  createCheckout,
-  getAccountSnapshot,
-  protectAccountStorage,
-  reconcileCaptureReservation,
-  requireCaptureAccess,
-  reserveCapture,
-  signIn,
-  signOut,
-  signUp,
-} from '../src/account/gateway';
+import { protectAccountStorage } from '../src/account/storage-protection';
 import { assertCollectionCapacity } from '../src/domain/limits';
 import { captureTabAsPdf, hasDebuggerPermission } from '../src/pdf/chromium';
 import {
@@ -34,6 +21,12 @@ function assertInjectable(tab: Browser.tabs.Tab): asserts tab is Browser.tabs.Ta
   if (tab.id === undefined || !tab.url || !/^(https?|file):/i.test(tab.url)) {
     throw new Error('Esta página está protegida por el navegador y no puede capturarse.');
   }
+}
+
+// Import dinámico: supabase-js (~100KB+) solo se descarga cuando una acción de
+// cuenta/cuota lo necesita, no en cada arranque del service worker.
+function gateway() {
+  return import('../src/account/gateway');
 }
 
 async function activeTab(): Promise<Browser.tabs.Tab & { id: number; url: string }> {
@@ -73,11 +66,13 @@ async function storeCapture(
   const bytes = captureBytes(payload, faithfulPdf);
   assertCollectionCapacity(collection, bytes);
   const operationId = crypto.randomUUID();
+  const { reserveCapture, cancelCaptureReservation, commitCapture } = await gateway();
   const reservation = await reserveCapture(operationId, bytes);
   let item: CaptureItem;
   try {
     item = await addCapture(collectionId, payload, faithfulPdf, {
       reservationId: reservation.id,
+      bytes,
     });
   } catch (error) {
     await cancelCaptureReservation(reservation.id).catch(() => undefined);
@@ -102,6 +97,7 @@ async function storeCapture(
 async function handleFullCapture(
   message: Extract<RuntimeMessage, { type: 'capture/full' }>,
 ): Promise<RuntimeResponse> {
+  const { requireCaptureAccess } = await gateway();
   await requireCaptureAccess();
   const tab = await activeTab();
   await injectCaptureRuntime(tab.id);
@@ -116,6 +112,7 @@ async function handleFullCapture(
 async function handleSelectionStart(
   message: Extract<RuntimeMessage, { type: 'capture/select' }>,
 ): Promise<RuntimeResponse> {
+  const { requireCaptureAccess } = await gateway();
   await requireCaptureAccess();
   const tab = await activeTab();
   await injectCaptureRuntime(tab.id);
@@ -129,6 +126,7 @@ async function handleSelectionStart(
 }
 
 async function reconcilePendingCaptures(): Promise<number> {
+  const { requireCaptureAccess, reconcileCaptureReservation } = await gateway();
   await requireCaptureAccess();
   const pending = await listPendingCaptureItems();
   let recovered = 0;
@@ -152,16 +150,30 @@ async function handleMessage(
     if (tabId === undefined) return { ok: false, error: 'Se perdió la pestaña capturada.' };
     return storeCapture(tabId, message.collectionId, message.payload);
   }
-  if (message.type === 'account/snapshot') return { ok: true, data: await getAccountSnapshot() };
-  if (message.type === 'account/sign-in') return { ok: true, data: await signIn(message.email, message.password) };
-  if (message.type === 'account/sign-up') return { ok: true, data: await signUp(message.email, message.password) };
-  if (message.type === 'account/sign-out') return { ok: true, data: await signOut() };
+  if (message.type === 'account/snapshot') {
+    const { getAccountSnapshot } = await gateway();
+    return { ok: true, data: await getAccountSnapshot() };
+  }
+  if (message.type === 'account/sign-in') {
+    const { signIn } = await gateway();
+    return { ok: true, data: await signIn(message.email, message.password) };
+  }
+  if (message.type === 'account/sign-up') {
+    const { signUp } = await gateway();
+    return { ok: true, data: await signUp(message.email, message.password) };
+  }
+  if (message.type === 'account/sign-out') {
+    const { signOut } = await gateway();
+    return { ok: true, data: await signOut() };
+  }
   if (message.type === 'billing/checkout') {
+    const { createCheckout } = await gateway();
     const checkout = await createCheckout(message.kind, message.amountCents);
     await browser.tabs.create({ url: checkout.checkoutUrl });
     return { ok: true, data: { opened: true } };
   }
   if (message.type === 'billing/cancel-subscription') {
+    const { cancelSubscription } = await gateway();
     return { ok: true, data: await cancelSubscription() };
   }
   if (message.type === 'quota/reconcile') {

@@ -24,6 +24,7 @@ interface CollectionWebDb extends DBSchema {
     indexes: {
       'by-collection': string;
       'by-collection-position': [string, number];
+      'by-status': string;
     };
   };
   artifacts: {
@@ -36,18 +37,29 @@ interface CollectionWebDb extends DBSchema {
 let databasePromise: Promise<IDBPDatabase<CollectionWebDb>> | undefined;
 
 function getDatabase(): Promise<IDBPDatabase<CollectionWebDb>> {
-  databasePromise ??= openDB<CollectionWebDb>('collection-web-pdf', 1, {
-    upgrade(database) {
-      const collections = database.createObjectStore('collections', { keyPath: 'id' });
-      collections.createIndex('by-updated', 'updatedAt');
+  databasePromise ??= openDB<CollectionWebDb>('collection-web-pdf', 2, {
+    upgrade(database, oldVersion, _newVersion, transaction) {
+      if (oldVersion < 1) {
+        const collections = database.createObjectStore('collections', { keyPath: 'id' });
+        collections.createIndex('by-updated', 'updatedAt');
 
-      const items = database.createObjectStore('items', { keyPath: 'id' });
-      items.createIndex('by-collection', 'collectionId');
-      items.createIndex('by-collection-position', ['collectionId', 'position']);
+        const items = database.createObjectStore('items', { keyPath: 'id' });
+        items.createIndex('by-collection', 'collectionId');
+        items.createIndex('by-collection-position', ['collectionId', 'position']);
+        items.createIndex('by-status', 'status');
 
-      const artifacts = database.createObjectStore('artifacts', { keyPath: 'id' });
-      artifacts.createIndex('by-item', 'itemId');
-      artifacts.createIndex('by-collection', 'collectionId');
+        const artifacts = database.createObjectStore('artifacts', { keyPath: 'id' });
+        artifacts.createIndex('by-item', 'itemId');
+        artifacts.createIndex('by-collection', 'collectionId');
+        return;
+      }
+      // v2: índice por estado para no escanear todos los items en reconcile.
+      if (oldVersion < 2) {
+        const itemStore = transaction.objectStore('items');
+        if (!itemStore.indexNames.contains('by-status')) {
+          itemStore.createIndex('by-status', 'status');
+        }
+      }
     },
   });
   return databasePromise;
@@ -63,8 +75,9 @@ export function captureBytes(payload: CapturePayload, faithfulPdf?: ArrayBuffer)
 
 export async function listCollections(): Promise<CollectionDraft[]> {
   const database = await getDatabase();
-  const collections = await database.getAll('collections');
-  return collections.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  // El índice by-updated evita ordenar en JS; revierte para mostrar recientes primero.
+  const collections = await database.getAllFromIndex('collections', 'by-updated');
+  return collections.reverse();
 }
 
 export async function getCollection(id: string): Promise<CollectionDraft | undefined> {
@@ -163,7 +176,7 @@ export async function addCapture(
   collectionId: string,
   payload: CapturePayload,
   faithfulPdf?: ArrayBuffer,
-  quota?: { reservationId: string },
+  quota?: { reservationId: string; bytes?: number },
 ): Promise<CaptureItem> {
   const database = await getDatabase();
   const transaction = database.transaction(
@@ -172,9 +185,11 @@ export async function addCapture(
   );
   const collection = await transaction.objectStore('collections').get(collectionId);
   if (!collection) throw new Error('La colección ya no existe.');
+  // Un solo JSON.stringify por captura: reutiliza los bytes ya reservados cuando
+  // el coordinador los calculó para la cuota en vez de serializar dos veces.
   const readableBytes = semanticBytes(payload.document);
   const faithfulBytes = faithfulPdf?.byteLength ?? 0;
-  const bytesUsed = captureBytes(payload, faithfulPdf);
+  const bytesUsed = quota?.bytes ?? readableBytes + faithfulBytes;
   assertCollectionCapacity(collection, bytesUsed);
 
   const itemId = crypto.randomUUID();
@@ -240,9 +255,8 @@ export async function markCaptureReady(itemId: string): Promise<CaptureItem> {
 
 export async function listPendingCaptureItems(): Promise<CaptureItem[]> {
   const database = await getDatabase();
-  return (await database.getAll('items')).filter(
-    (item) => item.status === 'quota-pending' && Boolean(item.quotaReservationId),
-  );
+  const pending = await database.getAllFromIndex('items', 'by-status', 'quota-pending');
+  return pending.filter((item) => Boolean(item.quotaReservationId));
 }
 
 export async function renameCaptureItem(itemId: string, title: string): Promise<void> {
@@ -265,13 +279,14 @@ export async function reorderCaptureItems(
   }
 
   const itemMap = new Map(items.map((item) => [item.id, item]));
-  await Promise.all(
-    orderedIds.map((id, position) => {
-      const item = itemMap.get(id);
-      if (!item) throw new Error('La vista ya no existe.');
-      return transaction.objectStore('items').put({ ...item, position });
-    }),
-  );
+  const itemStore = transaction.objectStore('items');
+  for (const [position, id] of orderedIds.entries()) {
+    const item = itemMap.get(id);
+    if (!item) throw new Error('La vista ya no existe.');
+    // Solo escribe las filas que cambian de posición (reordenar 1 item de N
+    // no debe reescribir N filas).
+    if (item.position !== position) await itemStore.put({ ...item, position });
+  }
 
   const collection = await transaction.objectStore('collections').get(collectionId);
   if (collection) {
@@ -300,11 +315,12 @@ export async function deleteCaptureItem(itemId: string): Promise<void> {
     .objectStore('items')
     .index('by-collection')
     .getAll(item.collectionId);
-  await Promise.all(
-    remaining
-      .toSorted((a, b) => a.position - b.position)
-      .map((entry, position) => transaction.objectStore('items').put({ ...entry, position })),
-  );
+  const itemStore = transaction.objectStore('items');
+  for (const [position, entry] of remaining
+    .toSorted((a, b) => a.position - b.position)
+    .entries()) {
+    if (entry.position !== position) await itemStore.put({ ...entry, position });
+  }
 
   const collection = await transaction.objectStore('collections').get(item.collectionId);
   if (collection) {

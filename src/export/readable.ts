@@ -1,10 +1,10 @@
 import pdfMake from 'pdfmake/build/pdfmake';
-import pdfFonts from 'pdfmake/build/vfs_fonts';
 import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces';
 import type { SemanticBlock, SemanticLink } from '../domain/types';
 import type { PdfWorkerRequest } from './types';
+import { installSubsetFonts } from './fonts';
 
-pdfMake.vfs = pdfFonts as unknown as Record<string, string>;
+installSubsetFonts();
 
 function linkNotes(links: SemanticLink[]): Content[] {
   if (links.length === 0) return [];

@@ -2,6 +2,14 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
+  vite: () => ({
+    build: {
+      // Menos I/O y zips más pequeños: sin sourcemaps en el artefacto final.
+      sourcemap: false,
+      reportCompressedSize: false,
+      chunkSizeWarningLimit: 600,
+    },
+  }),
   manifest: () => {
     const supabaseUrl = import.meta.env.WXT_SUPABASE_URL?.trim();
     const hostPermissions = supabaseUrl ? [`${new URL(supabaseUrl).origin}/*`] : [];

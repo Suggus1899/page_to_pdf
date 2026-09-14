@@ -8,15 +8,31 @@ function pageSize(settings: PrintSettings): [number, number] {
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  // Cache de anchos por palabra: widthOfTextAtSize es la operación más cara del
+  // generador fiel y se repetía por cada candidato de línea.
+  const widthCache = new Map<string, number>();
+  const widthOf = (word: string): number => {
+    const cached = widthCache.get(word);
+    if (cached !== undefined) return cached;
+    const width = font.widthOfTextAtSize(word, size);
+    widthCache.set(word, width);
+    return width;
+  };
   const lines: string[] = [];
   for (const paragraph of text.split(/\r?\n/)) {
     let line = '';
+    let lineWidth = 0;
+    const spaceWidth = widthOf(' ');
     for (const word of paragraph.split(/\s+/)) {
-      const candidate = line ? `${line} ${word}` : word;
-      if (font.widthOfTextAtSize(candidate, size) <= maxWidth) line = candidate;
-      else {
+      const wordWidth = widthOf(word);
+      const candidateWidth = line ? lineWidth + spaceWidth + wordWidth : wordWidth;
+      if (candidateWidth <= maxWidth) {
+        line = line ? `${line} ${word}` : word;
+        lineWidth = candidateWidth;
+      } else {
         if (line) lines.push(line);
         line = word;
+        lineWidth = wordWidth;
       }
     }
     lines.push(line);

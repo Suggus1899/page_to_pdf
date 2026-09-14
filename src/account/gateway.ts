@@ -9,8 +9,22 @@ import {
   type SubscriptionStatus,
 } from './types';
 
+export { protectAccountStorage } from './storage-protection';
+
 const AUTH_STORAGE_PREFIX = 'account:';
 let client: SupabaseClient | undefined;
+
+// Cache corto + dedupe de snapshot: popup/manager/focus disparaban
+// getSession + getUser + invoke(snapshot) en cada apertura. La cuota real la
+// impone el servidor en reserve/commit; aquí el TTL solo evita tormentas.
+const SNAPSHOT_TTL_MS = 30_000;
+let snapshotInflight: Promise<AccountSnapshot> | undefined;
+let snapshotCache: { at: number; value: AccountSnapshot } | undefined;
+
+function invalidateSnapshotCache(): void {
+  snapshotInflight = undefined;
+  snapshotCache = undefined;
+}
 
 const extensionStorage = {
   async getItem(key: string): Promise<string | null> {
@@ -123,7 +137,23 @@ async function invoke<T>(action: string, payload: Record<string, unknown> = {}):
   return result.data;
 }
 
-export async function getAccountSnapshot(): Promise<AccountSnapshot> {
+export async function getAccountSnapshot(options?: { force?: boolean }): Promise<AccountSnapshot> {
+  const now = Date.now();
+  if (!options?.force && snapshotCache && now - snapshotCache.at < SNAPSHOT_TTL_MS) {
+    return snapshotCache.value;
+  }
+  if (!options?.force && snapshotInflight) return snapshotInflight;
+  const task = fetchAccountSnapshot().then((snapshot) => {
+    snapshotCache = { at: Date.now(), value: snapshot };
+    return snapshot;
+  }).finally(() => {
+    if (snapshotInflight === task) snapshotInflight = undefined;
+  });
+  snapshotInflight = task;
+  return task;
+}
+
+async function fetchAccountSnapshot(): Promise<AccountSnapshot> {
   const accountClient = getClient();
   if (!accountClient) return { configured: false, signedIn: false };
   const session = await accountClient.auth.getSession();
@@ -151,6 +181,7 @@ export async function signUp(email: string, password: string): Promise<AuthActio
   if (!accountClient) throw new Error('La cuenta todavía no está configurada en este build.');
   const { error } = await accountClient.auth.signUp({ email: email.trim(), password });
   if (error) throw new Error(friendlyMessage(error.message));
+  invalidateSnapshotCache();
   return {
     snapshot: await getAccountSnapshot(),
     message: 'Revisa tu correo y confirma la cuenta antes de capturar.',
@@ -165,6 +196,7 @@ export async function signIn(email: string, password: string): Promise<AuthActio
     password,
   });
   if (error) throw new Error(friendlyMessage(error.message));
+  invalidateSnapshotCache();
   return { snapshot: await getAccountSnapshot() };
 }
 
@@ -174,6 +206,7 @@ export async function signOut(): Promise<AccountSnapshot> {
     const { error } = await accountClient.auth.signOut();
     if (error) throw new Error(error.message);
   }
+  invalidateSnapshotCache();
   return { configured: Boolean(accountClient), signedIn: false };
 }
 
@@ -190,6 +223,7 @@ export async function createCheckout(
 
 export async function cancelSubscription(): Promise<AccountSnapshot> {
   const snapshot = parseAuthorizedSnapshot(await invoke<unknown>('cancel-subscription'));
+  invalidateSnapshotCache();
   const accountClient = getClient();
   const { data } = accountClient ? await accountClient.auth.getUser() : { data: { user: null } };
   if (data.user) {
@@ -221,7 +255,9 @@ export async function reserveCapture(
 }
 
 export async function commitCapture(reservationId: string): Promise<AccountSnapshot> {
-  return parseAuthorizedSnapshot(await invoke<unknown>('commit', { reservationId }));
+  const snapshot = parseAuthorizedSnapshot(await invoke<unknown>('commit', { reservationId }));
+  invalidateSnapshotCache();
+  return snapshot;
 }
 
 export async function cancelCaptureReservation(reservationId: string): Promise<void> {
@@ -229,7 +265,9 @@ export async function cancelCaptureReservation(reservationId: string): Promise<v
 }
 
 export async function reconcileCaptureReservation(reservationId: string): Promise<AccountSnapshot> {
-  return parseAuthorizedSnapshot(await invoke<unknown>('reconcile', { reservationId }));
+  const snapshot = parseAuthorizedSnapshot(await invoke<unknown>('reconcile', { reservationId }));
+  invalidateSnapshotCache();
+  return snapshot;
 }
 
 export async function requireCaptureAccess(): Promise<AccountSnapshot> {
@@ -241,11 +279,4 @@ export async function requireCaptureAccess(): Promise<AccountSnapshot> {
     throw new Error('Agotaste los 150 MB de este ciclo. Espera la recarga o activa Premium.');
   }
   return snapshot;
-}
-
-export async function protectAccountStorage(): Promise<void> {
-  const storage = browser.storage.local as unknown as {
-    setAccessLevel?: (options: { accessLevel: 'TRUSTED_CONTEXTS' }) => Promise<void>;
-  };
-  await storage.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
 }

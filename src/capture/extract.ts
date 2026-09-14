@@ -40,8 +40,17 @@ function normalizeText(value: string | null | undefined): string {
 }
 
 function isExcluded(element: Element, excluded: ReadonlySet<Element>): boolean {
-  for (const excludedElement of excluded) {
-    if (excludedElement === element || excludedElement.contains(element)) return true;
+  if (excluded.size === 0) return false;
+  // O(profundidad) con Set.has en vez de O(excluidos) con .contains() por nodo.
+  let current: Element | null = element;
+  while (current) {
+    if (excluded.has(current)) return true;
+    if (current.parentElement) {
+      current = current.parentElement;
+      continue;
+    }
+    const root = current.getRootNode();
+    current = root instanceof ShadowRoot ? root.host : null;
   }
   return false;
 }
@@ -50,6 +59,18 @@ function isVisible(element: Element): boolean {
   if (element.hasAttribute('hidden') || element.getAttribute('aria-hidden') === 'true') {
     return false;
   }
+  // checkVisibility evita el reflow de getComputedStyle en el recorrido caliente.
+  const checkable = element as HTMLElement & {
+    checkVisibility?: (options?: { checkOpacity?: boolean; checkVisibilityCSS?: boolean }) => boolean;
+  };
+  if (typeof checkable.checkVisibility === 'function') {
+    try {
+      if (!checkable.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+      return true;
+    } catch {
+      // Cae al camino clásico si el navegador no soporta las opciones.
+    }
+  }
   const style = getComputedStyle(element);
   return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
 }
@@ -57,7 +78,8 @@ function isVisible(element: Element): boolean {
 function linksFrom(element: Element): SemanticLink[] {
   const links: SemanticLink[] = [];
   for (const anchor of element.querySelectorAll<HTMLAnchorElement>('a[href]')) {
-    const label = normalizeText(anchor.innerText || anchor.textContent);
+    // textContent primero: evita el layout forzado de innerText en el camino caliente.
+    const label = normalizeText(anchor.textContent || anchor.innerText);
     if (!label) continue;
     try {
       links.push({ label, url: new URL(anchor.href, location.href).href });
@@ -71,7 +93,7 @@ function linksFrom(element: Element): SemanticLink[] {
 function fieldText(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
   if (element instanceof HTMLInputElement && element.type === 'password') return '';
   const label =
-    element.labels?.[0]?.innerText ||
+    element.labels?.[0]?.textContent ||
     element.getAttribute('aria-label') ||
     element.getAttribute('placeholder') ||
     element.name;
@@ -101,7 +123,7 @@ function elementChildren(element: Element): Element[] {
 
 function tableBlock(table: HTMLTableElement): SemanticBlock | undefined {
   const rows = Array.from(table.rows)
-    .map((row) => Array.from(row.cells).map((cell) => normalizeText(cell.innerText)))
+    .map((row) => Array.from(row.cells).map((cell) => normalizeText(cell.textContent)))
     .filter((row) => row.some(Boolean));
   if (rows.length === 0) return undefined;
   const firstRow = table.rows[0];
@@ -111,7 +133,8 @@ function tableBlock(table: HTMLTableElement): SemanticBlock | undefined {
 
 function blockForElement(element: Element): SemanticBlock | undefined {
   const tag = element.tagName;
-  const text = normalizeText((element as HTMLElement).innerText || element.textContent);
+  // textContent primero: el filtro isVisible ya garantizó visibilidad, sin forzar layout.
+  const text = normalizeText(element.textContent || (element as HTMLElement).innerText);
 
   if (/^H[1-6]$/.test(tag) && text) {
     return {
@@ -125,7 +148,7 @@ function blockForElement(element: Element): SemanticBlock | undefined {
   if ((tag === 'UL' || tag === 'OL') && text) {
     const items = Array.from(element.children)
       .filter((child) => child.tagName === 'LI')
-      .map((item) => normalizeText((item as HTMLElement).innerText))
+      .map((item) => normalizeText(item.textContent))
       .filter(Boolean);
     return items.length > 0 ? { type: 'list', ordered: tag === 'OL', items } : undefined;
   }
@@ -173,10 +196,13 @@ function blockForElement(element: Element): SemanticBlock | undefined {
 
 async function imageToDataUrl(sourceUrl: string): Promise<string | undefined> {
   if (sourceUrl.startsWith('data:image/')) return sourceUrl;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
   try {
     const url = new URL(sourceUrl, location.href);
     if (url.origin !== location.origin) return undefined;
-    const response = await fetch(url.href, { credentials: 'include' });
+    // Sin compresión por decisión de producto: solo concurrencia + timeout.
+    const response = await fetch(url.href, { credentials: 'include', signal: controller.signal });
     if (!response.ok) return undefined;
     const blob = await response.blob();
     if (!blob.type.startsWith('image/') || blob.size > 2 * 1024 * 1024) return undefined;
@@ -191,17 +217,31 @@ async function imageToDataUrl(sourceUrl: string): Promise<string | undefined> {
     });
   } catch {
     return undefined;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
 async function hydrateFigures(blocks: SemanticBlock[]): Promise<void> {
+  // devwf: techo conocido — máx 10 figuras hidratadas; concurrencia 3 con timeout
+  // por imagen en vez de serie para no bloquear la captura en webs con medios.
+  const figures = blocks.filter(
+    (block): block is Extract<SemanticBlock, { type: 'figure' }> =>
+      block.type === 'figure' && Boolean(block.sourceUrl),
+  );
   let hydrated = 0;
-  for (const block of blocks) {
-    if (block.type !== 'figure' || !block.sourceUrl || hydrated >= 10) continue;
-    const dataUrl = await imageToDataUrl(block.sourceUrl);
-    if (dataUrl) {
-      block.dataUrl = dataUrl;
-      hydrated += 1;
+  for (let index = 0; index < figures.length && hydrated < 10; index += 3) {
+    const batch = figures.slice(index, index + 3);
+    const results = await Promise.all(
+      batch.map((block) => imageToDataUrl(block.sourceUrl as string)),
+    );
+    for (let offset = 0; offset < batch.length && hydrated < 10; offset += 1) {
+      const block = batch[offset]!;
+      const dataUrl = results[offset];
+      if (dataUrl) {
+        block.dataUrl = dataUrl;
+        hydrated += 1;
+      }
     }
   }
 }
