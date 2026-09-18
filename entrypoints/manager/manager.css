@@ -92,7 +92,6 @@ body { min-width: 0; }
 .sidebar-danger .button { width: 100%; }
 
 .workspace { min-width: 0; padding: 30px clamp(24px, 3vw, 44px) 64px; }
-.workspace > .account-panel { margin-top: 24px; }
 
 .workspace-header {
   display: flex;
@@ -199,14 +198,6 @@ body { min-width: 0; }
   font-size: 13px;
 }
 
-.pending-warning {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.pending-warning .button { flex: 0 0 auto; }
 
 .progress-card { padding: 14px; margin: 16px 0; }
 .progress-card progress { width: 100%; height: 8px; margin-top: 9px; accent-color: var(--brand); }
@@ -316,7 +307,6 @@ body { min-width: 0; }
 
 .chip.good { background: var(--success-bg); color: var(--success); }
 .chip.visual { background: var(--brand-soft); color: var(--brand-strong); }
-.chip.pending { background: var(--warning-bg); color: var(--warning); }
 
 .item-meta { display: flex; flex: 0 0 auto; align-items: center; font-size: 10px; white-space: nowrap; }
 .item-meta span + span::before { margin: 0 7px; color: var(--border-strong); content: "•"; }

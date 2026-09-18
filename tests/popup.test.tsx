@@ -10,25 +10,7 @@ describe('popup', () => {
   beforeEach(async () => {
     await clearAllData();
     sendMessage.mockReset();
-    sendMessage.mockImplementation((message: { type?: string }) => {
-      if (message.type === 'account/snapshot') {
-        return Promise.resolve({
-          ok: true,
-          data: {
-            configured: true,
-            signedIn: true,
-            email: 'prueba@example.com',
-            emailVerified: true,
-            plan: 'free',
-            freeBytesLimit: 150 * 1024 * 1024,
-            freeBytesUsed: 0,
-            subscriptionStatus: 'none',
-            supportBenefitUsed: false,
-          },
-        });
-      }
-      return Promise.resolve({ ok: true, data: {} });
-    });
+    sendMessage.mockResolvedValue({ ok: true, data: {} });
     vi.stubGlobal('browser', {
       storage: {
         local: {
@@ -62,7 +44,7 @@ describe('popup', () => {
     await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'capture/full', faithful: true }),
     ));
-    expect(screen.getByText(/la web y el pdf permanecen en tu dispositivo/i)).toBeVisible();
+    expect(screen.getByText(/funciona sin cuenta ni servidor/i)).toBeVisible();
   });
 
   it('permite ajustar el PDF de la colección activa', async () => {

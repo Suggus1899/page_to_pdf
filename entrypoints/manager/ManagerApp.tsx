@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccountPanel } from '../../src/account/AccountPanel';
+import { COLLECTION_LIMIT_OPTIONS } from '../../src/domain/limits';
 import type {
   CaptureItem,
   CollectionDraft,
@@ -27,10 +27,6 @@ import {
 } from '../../src/storage/database';
 import { buildPdfFilename, formatBytes } from '../../src/utils/filename';
 import { BrandMark } from '../../src/ui/BrandMark';
-import {
-  MESSAGE_PROTOCOL_VERSION,
-  type RuntimeResponse,
-} from '../../src/runtime/messages';
 import { SemanticPreview } from './SemanticPreview';
 
 interface PreviewState {
@@ -111,7 +107,6 @@ export function ManagerApp() {
   const [preview, setPreview] = useState<PreviewState>();
   const [progress, setProgress] = useState<ProgressState>();
   const [notice, setNotice] = useState<{ text: string; error: boolean }>();
-  const [accountRefresh, setAccountRefresh] = useState(0);
   // Ref espejo para que `refresh` sea estable y no recree el efecto de carga
   // en cada selección (antes dependía de `selectedId` y re-disparaba fetches).
   const selectedIdRef = useRef(selectedId);
@@ -160,7 +155,6 @@ export function ManagerApp() {
       if (now - lastFocusRefresh < 1500) return;
       lastFocusRefresh = now;
       runAction(() => refresh(selectedIdRef.current));
-      setAccountRefresh((value) => value + 1);
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -176,12 +170,9 @@ export function ManagerApp() {
     () => collections.find((collection) => collection.id === selectedId),
     [collections, selectedId],
   );
-  const { pendingCount, allFaithful, missingFaithful } = useMemo(() => {
-    const pending = items.filter((item) => item.status === 'quota-pending').length;
+  const { allFaithful, missingFaithful } = useMemo(() => {
     return {
-      pendingCount: pending,
-      allFaithful:
-        items.length > 0 && pending === 0 && items.every((item) => item.faithfulAvailable),
+      allFaithful: items.length > 0 && items.every((item) => item.faithfulAvailable),
       missingFaithful: items.filter((item) => !item.faithfulAvailable).length,
     };
   }, [items]);
@@ -258,10 +249,6 @@ export function ManagerApp() {
     profile: 'readable' | 'faithful',
   ): Promise<void> => {
     if (!selected || items.length === 0) return;
-    if (items.some((item) => item.status !== 'ready')) {
-      setNotice({ text: 'Recupera las capturas pendientes antes de exportar.', error: true });
-      return;
-    }
     setNotice(undefined);
     setProgress({ percent: 1, label: 'Preparando artefactos' });
     try {
@@ -335,22 +322,6 @@ export function ManagerApp() {
     await refresh();
   };
 
-  const reconcilePending = async (): Promise<void> => {
-    const response: RuntimeResponse<{ recovered: number }> = await browser.runtime.sendMessage({
-      version: MESSAGE_PROTOCOL_VERSION,
-      type: 'quota/reconcile',
-    });
-    if (!response.ok) throw new Error(response.error || 'No se pudieron recuperar las capturas.');
-    await refresh(selectedId);
-    setAccountRefresh((value) => value + 1);
-    setNotice({
-      text: response.data?.recovered
-        ? `${response.data.recovered} captura(s) recuperada(s).`
-        : 'No había capturas pendientes por recuperar.',
-      error: false,
-    });
-  };
-
   if (!selected) {
     return <main className="empty-state">Cargando colecciones…</main>;
   }
@@ -410,7 +381,7 @@ export function ManagerApp() {
             />
             <div className="collection-summary muted">
               <span>{selected.itemCount} {selected.itemCount === 1 ? 'vista' : 'vistas'}</span>
-              <span>{formatBytes(selected.bytesUsed)} de 300 MB</span>
+              <span>{formatBytes(selected.bytesUsed)} de {formatBytes(selected.storageLimitBytes)}</span>
             </div>
           </div>
           <div className="header-actions">
@@ -424,7 +395,7 @@ export function ManagerApp() {
             </button>
             <button
               className="button"
-              disabled={items.length === 0 || pendingCount > 0 || Boolean(progress)}
+              disabled={items.length === 0 || Boolean(progress)}
               onClick={() => void downloadPdf('readable')}
             >
               Exportar versión IA
@@ -435,8 +406,6 @@ export function ManagerApp() {
           </div>
         </header>
 
-        <AccountPanel refreshToken={accountRefresh} />
-
         <section className="card settings" aria-label="Configuración de impresión">
           <div className="settings-heading">
             <span className="settings-icon" aria-hidden="true">Aa</span>
@@ -446,6 +415,21 @@ export function ManagerApp() {
             </div>
           </div>
           <div className="settings-fields">
+            <label className="field">
+              <span>Límite local</span>
+              <select
+                value={selected.storageLimitBytes}
+                onChange={(event) => runAction(() => updateSettings({
+                  storageLimitBytes: Number(event.target.value),
+                }))}
+              >
+                {COLLECTION_LIMIT_OPTIONS.map((limit) => (
+                  <option key={limit} value={limit} disabled={limit < selected.bytesUsed}>
+                    {formatBytes(limit)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="field">
               <span>Papel</span>
               <select
@@ -517,13 +501,6 @@ export function ManagerApp() {
           <div className="warning" role="status">
             {missingFaithful} {missingFaithful === 1 ? 'vista fue guardada' : 'vistas fueron guardadas'} solo como texto.
             Elimina {missingFaithful === 1 ? 'esa vista' : 'esas vistas'} y vuelve a capturar para obtener el PDF visual completo.
-          </div>
-        ) : null}
-
-        {pendingCount > 0 ? (
-          <div className="warning pending-warning" role="status">
-            <span>{pendingCount} {pendingCount === 1 ? 'captura está pendiente' : 'capturas están pendientes'} de validar y no se pueden exportar.</span>
-            <button className="button" onClick={() => runAction(reconcilePending)}>Recuperar ahora</button>
           </div>
         ) : null}
 
@@ -602,7 +579,6 @@ export function ManagerApp() {
                           {item.faithfulAvailable ? 'Versión IA' : 'Solo versión IA'}
                         </span>
                         {item.faithfulAvailable ? <span className="chip visual">PDF visual</span> : null}
-                        {item.status === 'quota-pending' ? <span className="chip pending">Validación pendiente</span> : null}
                       </div>
                       <div className="item-meta muted">
                         <span>{formatBytes(item.bytesUsed)}</span>
@@ -616,7 +592,7 @@ export function ManagerApp() {
                     </button>
                     <button
                       className="button ghost"
-                      disabled={!item.faithfulAvailable || item.status !== 'ready'}
+                      disabled={!item.faithfulAvailable}
                       onClick={() => runAction(() => showFaithfulPreview(item))}
                     >
                       Ver PDF visual

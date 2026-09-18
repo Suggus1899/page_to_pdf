@@ -9,6 +9,5 @@
     "noImplicitOverride": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable", "WebWorker"],
     "types": ["chrome", "node", "vitest/globals", "@testing-library/jest-dom"]
-  },
-  "exclude": ["supabase/functions"]
+  }
 }

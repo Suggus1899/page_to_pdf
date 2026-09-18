@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AccountPanel } from '../../src/account/AccountPanel';
-import type { AccountSnapshot } from '../../src/account/types';
 import type { CollectionDraft } from '../../src/domain/types';
-import { MAX_COLLECTION_BYTES } from '../../src/domain/limits';
 import { copy } from '../../src/i18n/es';
 import {
   MESSAGE_PROTOCOL_VERSION,
@@ -25,8 +22,6 @@ export function PopupApp() {
   const [selectedId, setSelectedId] = useState('');
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [account, setAccount] = useState<AccountSnapshot>();
-  const [accountRefresh, setAccountRefresh] = useState(0);
   const [message, setMessage] = useState<{ text: string; error: boolean }>();
 
   const reportError = useCallback((error: unknown): void => {
@@ -66,11 +61,6 @@ export function PopupApp() {
     () => collections.find((collection) => collection.id === selectedId),
     [collections, selectedId],
   );
-  const canCapture = useMemo(
-    () => Boolean(account?.configured && account.signedIn && account.emailVerified),
-    [account],
-  );
-
   const selectCollection = async (id: string): Promise<void> => {
     setSelectedId(id);
     await browser.storage.local.set({ [ACTIVE_COLLECTION_KEY]: id });
@@ -129,7 +119,6 @@ export function PopupApp() {
       }
       if (type === 'capture/full') {
         setMessage({ text: copy.saved, error: false });
-        setAccountRefresh((value) => value + 1);
       }
       await refresh();
     } catch (error) {
@@ -160,8 +149,6 @@ export function PopupApp() {
         </div>
       </header>
 
-      <AccountPanel compact refreshToken={accountRefresh} onSnapshot={setAccount} />
-
       <section className="card popup-card" aria-label="Captura actual">
         <div className="collection-block">
           <label className="field">
@@ -181,9 +168,9 @@ export function PopupApp() {
           {selected ? (
             <div className="collection-usage muted" aria-live="polite">
               <span>{selected.itemCount} {selected.itemCount === 1 ? 'vista' : 'vistas'}</span>
-              <span>{formatBytes(selected.bytesUsed)} de 300 MB</span>
+              <span>{formatBytes(selected.bytesUsed)} de {formatBytes(selected.storageLimitBytes)}</span>
               <span className="usage-track" aria-hidden="true">
-                <span style={{ width: `${Math.min(100, selected.bytesUsed / MAX_COLLECTION_BYTES * 100)}%` }} />
+                <span style={{ width: `${Math.min(100, selected.bytesUsed / selected.storageLimitBytes * 100)}%` }} />
               </span>
             </div>
           ) : null}
@@ -193,7 +180,7 @@ export function PopupApp() {
           <button
             className="button primary"
             aria-label="Capturar web completa"
-            disabled={!selected || busy || !canCapture}
+            disabled={!selected || busy}
             onClick={() => void capture('capture/full')}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -204,7 +191,7 @@ export function PopupApp() {
           <button
             className="button"
             aria-label="Capturar secciones"
-            disabled={!selected || busy || !canCapture}
+            disabled={!selected || busy}
             onClick={() => void capture('capture/select')}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -297,7 +284,7 @@ export function PopupApp() {
 
         <p className="privacy-note">
           <span aria-hidden="true">◆</span>
-          La web y el PDF permanecen en tu dispositivo. Solo se verifican cuenta, bytes y pagos.
+          La web y el PDF permanecen en tu dispositivo. La extensión funciona sin cuenta ni servidor.
         </p>
 
         {message ? (

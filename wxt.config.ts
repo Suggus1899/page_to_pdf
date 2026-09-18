@@ -10,10 +10,7 @@ export default defineConfig({
       chunkSizeWarningLimit: 600,
     },
   }),
-  manifest: () => {
-    const supabaseUrl = import.meta.env.WXT_SUPABASE_URL?.trim();
-    const hostPermissions = supabaseUrl ? [`${new URL(supabaseUrl).origin}/*`] : [];
-    return {
+  manifest: {
       name: '__MSG_extensionName__',
       description: '__MSG_extensionDescription__',
       default_locale: 'es',
@@ -25,7 +22,6 @@ export default defineConfig({
         'unlimitedStorage',
         'debugger',
       ],
-      host_permissions: hostPermissions,
       icons: {
         16: 'icons/icon-16.png',
         32: 'icons/icon-32.png',
@@ -41,6 +37,5 @@ export default defineConfig({
           128: 'icons/icon-128.png',
         },
       },
-    };
   },
 });

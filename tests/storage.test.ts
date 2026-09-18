@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CapturePayload } from '../src/domain/types';
 import {
   assertCollectionCapacity,
-  MAX_COLLECTION_BYTES,
+  COLLECTION_LIMIT_OPTIONS,
+  DEFAULT_COLLECTION_LIMIT_BYTES,
 } from '../src/domain/limits';
 import {
   addCapture,
@@ -14,9 +15,8 @@ import {
   getReadableArtifact,
   listCaptureItems,
   listCollections,
-  listPendingCaptureItems,
-  markCaptureReady,
   reorderCaptureItems,
+  updateCollection,
 } from '../src/storage/database';
 
 function payload(title: string): CapturePayload {
@@ -47,6 +47,7 @@ describe('persistencia de colecciones', () => {
   it('conserva estados distintos aunque compartan la misma URL', async () => {
     const collection = await createCollection('SPA');
     expect(collection.captureFaithful).toBe(true);
+    expect(collection.storageLimitBytes).toBe(DEFAULT_COLLECTION_LIMIT_BYTES);
     const first = await addCapture(collection.id, payload('Estado A'));
     const second = await addCapture(collection.id, payload('Estado B'));
 
@@ -96,37 +97,29 @@ describe('persistencia de colecciones', () => {
     expect(await listCaptureItems(collection.id)).toHaveLength(51);
   });
 
-  it('bloquea una captura antes de superar 300 MB', () => {
-    expect(() =>
-      assertCollectionCapacity(
-        { bytesUsed: MAX_COLLECTION_BYTES - 10 },
-        11,
-      ),
-    ).toThrowError(
-      expect.objectContaining({ code: 'byte-limit' }),
-    );
-    expect(() =>
-      assertCollectionCapacity(
-        { bytesUsed: MAX_COLLECTION_BYTES - 10 },
-        10,
-      ),
-    ).not.toThrow();
+  it.each(COLLECTION_LIMIT_OPTIONS)('respeta el límite exacto de %i bytes', (limit) => {
+    expect(() => assertCollectionCapacity(
+      { bytesUsed: limit - 10, storageLimitBytes: limit },
+      10,
+    )).not.toThrow();
+    expect(() => assertCollectionCapacity(
+      { bytesUsed: limit - 10, storageLimitBytes: limit },
+      11,
+    )).toThrowError(expect.objectContaining({ code: 'byte-limit' }));
   });
 
-  it('bloquea una captura pendiente hasta confirmar su reserva', async () => {
-    const collection = await createCollection('Pendientes');
-    const pending = await addCapture(
-      collection.id,
-      payload('Por confirmar'),
-      new ArrayBuffer(8),
-      { reservationId: 'reservation-1' },
-    );
-    expect(pending.status).toBe('quota-pending');
-    expect(await listPendingCaptureItems()).toEqual([pending]);
+  it('rechaza reducir el límite por debajo del uso actual', async () => {
+    const collection = await createCollection('Límite local');
+    await addCapture(collection.id, payload('Con datos'), new ArrayBuffer(110 * 1024 * 1024));
 
-    const ready = await markCaptureReady(pending.id);
-    expect(ready.status).toBe('ready');
-    expect(ready.quotaReservationId).toBeUndefined();
-    expect(await listPendingCaptureItems()).toHaveLength(0);
+    await expect(updateCollection(collection.id, {
+      storageLimitBytes: COLLECTION_LIMIT_OPTIONS[0],
+    })).rejects.toThrow('menor que el espacio ya utilizado');
+    await expect(updateCollection(collection.id, {
+      storageLimitBytes: COLLECTION_LIMIT_OPTIONS[2],
+    })).resolves.toMatchObject({ storageLimitBytes: COLLECTION_LIMIT_OPTIONS[2] });
+    await expect(updateCollection(collection.id, {
+      storageLimitBytes: 123,
+    })).rejects.toThrow('límites locales disponibles');
   });
 });

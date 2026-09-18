@@ -8,7 +8,6 @@ test-results/
 *.log
 .env
 .env.*.local
-supabase/.temp/
 AGENTS.md
 **/AGENTS.md
 CLAUDE.md

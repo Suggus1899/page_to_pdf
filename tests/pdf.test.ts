@@ -12,6 +12,7 @@ function collection(): CollectionDraft {
     updatedAt: '2026-09-09T12:00:00.000Z',
     itemCount: 2,
     bytesUsed: 0,
+    storageLimitBytes: 300 * 1024 * 1024,
     status: 'ready',
     captureFaithful: true,
     printSettings: { ...DEFAULT_PRINT_SETTINGS },

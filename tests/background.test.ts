@@ -8,33 +8,10 @@ import type { RuntimeMessage, RuntimeResponse } from '../src/runtime/messages';
 
 const mocks = vi.hoisted(() => ({
   addCapture: vi.fn(),
-  cancelCaptureReservation: vi.fn(),
-  captureBytes: vi.fn(),
   captureTabAsPdf: vi.fn(),
-  commitCapture: vi.fn(),
   ensureDefaultCollection: vi.fn(),
   getCollection: vi.fn(),
   hasDebuggerPermission: vi.fn(),
-  listPendingCaptureItems: vi.fn(),
-  markCaptureReady: vi.fn(),
-  protectAccountStorage: vi.fn(),
-  requireCaptureAccess: vi.fn(),
-  reserveCapture: vi.fn(),
-}));
-
-vi.mock('../src/account/gateway', () => ({
-  cancelCaptureReservation: mocks.cancelCaptureReservation,
-  cancelSubscription: vi.fn(),
-  commitCapture: mocks.commitCapture,
-  createCheckout: vi.fn(),
-  getAccountSnapshot: vi.fn(),
-  protectAccountStorage: mocks.protectAccountStorage,
-  reconcileCaptureReservation: vi.fn(),
-  requireCaptureAccess: mocks.requireCaptureAccess,
-  reserveCapture: mocks.reserveCapture,
-  signIn: vi.fn(),
-  signOut: vi.fn(),
-  signUp: vi.fn(),
 }));
 
 vi.mock('../src/pdf/chromium', () => ({
@@ -44,11 +21,8 @@ vi.mock('../src/pdf/chromium', () => ({
 
 vi.mock('../src/storage/database', () => ({
   addCapture: mocks.addCapture,
-  captureBytes: mocks.captureBytes,
   ensureDefaultCollection: mocks.ensureDefaultCollection,
   getCollection: mocks.getCollection,
-  listPendingCaptureItems: mocks.listPendingCaptureItems,
-  markCaptureReady: mocks.markCaptureReady,
 }));
 
 const collection: CollectionDraft = {
@@ -58,8 +32,9 @@ const collection: CollectionDraft = {
   updatedAt: '2026-09-09T12:00:00.000Z',
   itemCount: 0,
   bytesUsed: 0,
+  storageLimitBytes: 300 * 1024 * 1024,
   status: 'ready',
-  captureFaithful: false,
+  captureFaithful: true,
   printSettings: DEFAULT_PRINT_SETTINGS,
 };
 
@@ -86,32 +61,36 @@ type RuntimeListener = (
   sendResponse: (response: RuntimeResponse) => void,
 ) => boolean | undefined;
 
-describe('coordinador de captura visual', () => {
+describe('coordinador de captura visual local', () => {
   let runtimeListener: RuntimeListener | undefined;
+  let installedListener: (() => void) | undefined;
+  const removeStorage = vi.fn();
 
   beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.useFakeTimers();
-    runtimeListener = undefined;
     mocks.getCollection.mockResolvedValue(collection);
     mocks.hasDebuggerPermission.mockResolvedValue(true);
     mocks.captureTabAsPdf.mockResolvedValue(new ArrayBuffer(12));
-    mocks.captureBytes.mockReturnValue(12);
-    mocks.reserveCapture.mockResolvedValue({ id: 'reservation-1' });
-    mocks.addCapture.mockResolvedValue({ id: 'item-1', status: 'quota-pending' });
-    mocks.markCaptureReady.mockResolvedValue({ id: 'item-1', status: 'ready' });
-    mocks.listPendingCaptureItems.mockResolvedValue([]);
+    mocks.addCapture.mockResolvedValue({ id: 'item-1', status: 'ready' });
 
     vi.stubGlobal('defineBackground', (setup: () => void) => setup());
     vi.stubGlobal('browser', {
       runtime: {
-        onInstalled: { addListener: vi.fn() },
+        onInstalled: { addListener: vi.fn((listener: () => void) => { installedListener = listener; }) },
         onStartup: { addListener: vi.fn() },
         onMessage: {
-          addListener: vi.fn((listener: RuntimeListener) => {
-            runtimeListener = listener;
+          addListener: vi.fn((listener: RuntimeListener) => { runtimeListener = listener; }),
+        },
+      },
+      storage: {
+        local: {
+          get: vi.fn().mockResolvedValue({
+            activeCollectionId: 'collection-1',
+            'account:collection-web-pdf-auth': 'secreto',
           }),
+          remove: removeStorage.mockResolvedValue(undefined),
         },
       },
       action: {
@@ -155,7 +134,7 @@ describe('coordinador de captura visual', () => {
     expect(mocks.addCapture).not.toHaveBeenCalled();
   });
 
-  it('exige el PDF visual aunque reciba un mensaje interno antiguo', async () => {
+  it('guarda directamente el PDF visual sin red ni cuenta', async () => {
     const visualPdf = new ArrayBuffer(12);
     mocks.captureTabAsPdf.mockResolvedValue(visualPdf);
 
@@ -169,50 +148,14 @@ describe('coordinador de captura visual', () => {
 
     expect(response.ok).toBe(true);
     expect(mocks.captureTabAsPdf).toHaveBeenCalledWith(21, DEFAULT_PRINT_SETTINGS);
-    expect(mocks.reserveCapture).toHaveBeenCalledWith(expect.any(String), 12);
-    expect(mocks.addCapture).toHaveBeenCalledWith(
-      collection.id,
-      payload,
-      visualPdf,
-      expect.objectContaining({ reservationId: 'reservation-1' }),
-    );
-    expect(mocks.commitCapture).toHaveBeenCalledWith('reservation-1');
-    expect(mocks.markCaptureReady).toHaveBeenCalledWith('item-1');
+    expect(mocks.addCapture).toHaveBeenCalledWith(collection.id, payload, visualPdf);
   });
 
-  it('no guarda la captura cuando el servidor rechaza la cuota', async () => {
-    mocks.reserveCapture.mockRejectedValue(new Error('quota-exceeded'));
-    const response = await dispatch({
-      version: 2,
-      type: 'capture/selection-ready',
-      collectionId: collection.id,
-      faithful: true,
-      payload,
-    });
-
-    expect(response.ok).toBe(false);
-    expect(mocks.addCapture).not.toHaveBeenCalled();
-  });
-
-  it('conserva la vista pendiente si se corta la confirmación', async () => {
-    mocks.commitCapture.mockRejectedValue(new Error('sin conexión'));
-    const response = await dispatch({
-      version: 2,
-      type: 'capture/selection-ready',
-      collectionId: collection.id,
-      faithful: true,
-      payload,
-    });
-
-    expect(response.ok).toBe(false);
-    expect(response.error).toContain('pendiente');
-    expect(mocks.addCapture).toHaveBeenCalledWith(
-      collection.id,
-      payload,
-      expect.any(ArrayBuffer),
-      expect.objectContaining({ reservationId: 'reservation-1' }),
-    );
-    expect(mocks.markCaptureReady).not.toHaveBeenCalled();
-    expect(mocks.cancelCaptureReservation).not.toHaveBeenCalled();
+  it('borra solo la sesión comercial heredada al actualizar', async () => {
+    installedListener?.();
+    await vi.waitFor(() => expect(removeStorage).toHaveBeenCalledWith([
+      'account:collection-web-pdf-auth',
+    ]));
+    expect(mocks.ensureDefaultCollection).toHaveBeenCalled();
   });
 });

@@ -23,6 +23,7 @@ export interface CollectionDraft {
   updatedAt: string;
   itemCount: number;
   bytesUsed: number;
+  storageLimitBytes: number;
   status: 'ready';
   captureFaithful: boolean;
   printSettings: PrintSettings;
@@ -37,8 +38,7 @@ export interface CaptureItem {
   capturedAt: string;
   viewport: { width: number; height: number; devicePixelRatio: number };
   scope: CaptureScope;
-  status: 'ready' | 'quota-pending';
-  quotaReservationId?: string;
+  status: 'ready';
   readableAvailable: boolean;
   faithfulAvailable: boolean;
   bytesUsed: number;

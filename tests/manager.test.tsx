@@ -62,22 +62,6 @@ describe('administrador', () => {
     vi.mocked(createPdfInWorker).mockClear();
     vi.stubGlobal('browser', {
       downloads: { download },
-      runtime: {
-        sendMessage: vi.fn().mockResolvedValue({
-          ok: true,
-          data: {
-            configured: true,
-            signedIn: true,
-            email: 'prueba@example.com',
-            emailVerified: true,
-            plan: 'free',
-            freeBytesLimit: 150 * 1024 * 1024,
-            freeBytesUsed: 0,
-            subscriptionStatus: 'none',
-            supportBenefitUsed: false,
-          },
-        }),
-      },
     });
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -162,20 +146,12 @@ describe('administrador', () => {
     expect(previewButton).toHaveFocus();
   });
 
-  it('bloquea las exportaciones mientras una captura está pendiente', async () => {
-    await clearAllData();
-    const collection = await createCollection('Pendiente');
-    await addCapture(
-      collection.id,
-      payload('Vista pendiente'),
-      new ArrayBuffer(8),
-      { reservationId: 'reservation-1' },
-    );
+  it('permite cambiar el límite local de la colección', async () => {
+    const user = userEvent.setup();
     render(<ManagerApp />);
 
-    expect(await screen.findByText('Validación pendiente')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Exportar PDF visual' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Exportar versión IA' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Recuperar ahora' })).toBeEnabled();
+    const limit = await screen.findByLabelText('Límite local');
+    await user.selectOptions(limit, String(500 * 1024 * 1024));
+    await waitFor(() => expect(limit).toHaveValue(String(500 * 1024 * 1024)));
   });
 });

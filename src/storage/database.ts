@@ -10,6 +10,8 @@ import {
 } from '../domain/types';
 import {
   assertCollectionCapacity,
+  DEFAULT_COLLECTION_LIMIT_BYTES,
+  isCollectionLimitBytes,
 } from '../domain/limits';
 
 interface CollectionWebDb extends DBSchema {
@@ -24,7 +26,6 @@ interface CollectionWebDb extends DBSchema {
     indexes: {
       'by-collection': string;
       'by-collection-position': [string, number];
-      'by-status': string;
     };
   };
   artifacts: {
@@ -37,7 +38,7 @@ interface CollectionWebDb extends DBSchema {
 let databasePromise: Promise<IDBPDatabase<CollectionWebDb>> | undefined;
 
 function getDatabase(): Promise<IDBPDatabase<CollectionWebDb>> {
-  databasePromise ??= openDB<CollectionWebDb>('collection-web-pdf', 2, {
+  databasePromise ??= openDB<CollectionWebDb>('collection-web-pdf', 3, {
     upgrade(database, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const collections = database.createObjectStore('collections', { keyPath: 'id' });
@@ -46,20 +47,42 @@ function getDatabase(): Promise<IDBPDatabase<CollectionWebDb>> {
         const items = database.createObjectStore('items', { keyPath: 'id' });
         items.createIndex('by-collection', 'collectionId');
         items.createIndex('by-collection-position', ['collectionId', 'position']);
-        items.createIndex('by-status', 'status');
 
         const artifacts = database.createObjectStore('artifacts', { keyPath: 'id' });
         artifacts.createIndex('by-item', 'itemId');
         artifacts.createIndex('by-collection', 'collectionId');
-        return;
-      }
-      // v2: índice por estado para no escanear todos los items en reconcile.
-      if (oldVersion < 2) {
+      } else if (oldVersion < 3) {
+        const collectionStore = transaction.objectStore('collections');
+        void collectionStore.openCursor().then(async function migrateCollection(cursor): Promise<void> {
+          if (!cursor) return;
+          const collection = cursor.value as CollectionDraft & { storageLimitBytes?: number };
+          await cursor.update({
+            ...collection,
+            storageLimitBytes: collection.storageLimitBytes ?? DEFAULT_COLLECTION_LIMIT_BYTES,
+          });
+          await migrateCollection(await cursor.continue());
+        });
+
         const itemStore = transaction.objectStore('items');
-        if (!itemStore.indexNames.contains('by-status')) {
-          itemStore.createIndex('by-status', 'status');
-        }
+        const legacyItemStore = itemStore as unknown as {
+          indexNames: DOMStringList;
+          deleteIndex(name: string): void;
+        };
+        if (legacyItemStore.indexNames.contains('by-status')) legacyItemStore.deleteIndex('by-status');
+        void itemStore.openCursor().then(async function migrateItem(cursor): Promise<void> {
+          if (!cursor) return;
+          const legacy = cursor.value as CaptureItem & { quotaReservationId?: string };
+          const item: Record<string, unknown> = { ...legacy, status: 'ready' };
+          delete item.quotaReservationId;
+          await cursor.update(item as unknown as CaptureItem);
+          await migrateItem(await cursor.continue());
+        });
       }
+    },
+    blocking() {
+      const connection = databasePromise;
+      databasePromise = undefined;
+      void connection?.then((database) => database.close());
     },
   });
   return databasePromise;
@@ -67,10 +90,6 @@ function getDatabase(): Promise<IDBPDatabase<CollectionWebDb>> {
 
 function semanticBytes(document: SemanticDocument): number {
   return new TextEncoder().encode(JSON.stringify(document)).byteLength;
-}
-
-export function captureBytes(payload: CapturePayload, faithfulPdf?: ArrayBuffer): number {
-  return semanticBytes(payload.document) + (faithfulPdf?.byteLength ?? 0);
 }
 
 export async function listCollections(): Promise<CollectionDraft[]> {
@@ -107,6 +126,7 @@ export async function createCollection(name: string): Promise<CollectionDraft> {
     updatedAt: now,
     itemCount: 0,
     bytesUsed: 0,
+    storageLimitBytes: DEFAULT_COLLECTION_LIMIT_BYTES,
     status: 'ready',
     captureFaithful: true,
     printSettings: { ...DEFAULT_PRINT_SETTINGS },
@@ -133,6 +153,7 @@ export async function ensureDefaultCollection(): Promise<CollectionDraft> {
     updatedAt: now,
     itemCount: 0,
     bytesUsed: 0,
+    storageLimitBytes: DEFAULT_COLLECTION_LIMIT_BYTES,
     status: 'ready',
     captureFaithful: true,
     printSettings: { ...DEFAULT_PRINT_SETTINGS },
@@ -144,13 +165,21 @@ export async function ensureDefaultCollection(): Promise<CollectionDraft> {
 
 export async function updateCollection(
   id: string,
-  patch: Partial<Pick<CollectionDraft, 'name' | 'captureFaithful'>> & {
+  patch: Partial<Pick<CollectionDraft, 'name' | 'captureFaithful' | 'storageLimitBytes'>> & {
     printSettings?: Partial<PrintSettings>;
   },
 ): Promise<CollectionDraft> {
   const database = await getDatabase();
   const collection = await database.get('collections', id);
   if (!collection) throw new Error('La colección ya no existe.');
+  if (patch.storageLimitBytes !== undefined) {
+    if (!isCollectionLimitBytes(patch.storageLimitBytes)) {
+      throw new Error('Selecciona uno de los límites locales disponibles.');
+    }
+    if (patch.storageLimitBytes < collection.bytesUsed) {
+      throw new Error('El límite no puede ser menor que el espacio ya utilizado.');
+    }
+  }
 
   const updated: CollectionDraft = {
     ...collection,
@@ -176,7 +205,6 @@ export async function addCapture(
   collectionId: string,
   payload: CapturePayload,
   faithfulPdf?: ArrayBuffer,
-  quota?: { reservationId: string; bytes?: number },
 ): Promise<CaptureItem> {
   const database = await getDatabase();
   const transaction = database.transaction(
@@ -185,11 +213,9 @@ export async function addCapture(
   );
   const collection = await transaction.objectStore('collections').get(collectionId);
   if (!collection) throw new Error('La colección ya no existe.');
-  // Un solo JSON.stringify por captura: reutiliza los bytes ya reservados cuando
-  // el coordinador los calculó para la cuota en vez de serializar dos veces.
   const readableBytes = semanticBytes(payload.document);
   const faithfulBytes = faithfulPdf?.byteLength ?? 0;
-  const bytesUsed = quota?.bytes ?? readableBytes + faithfulBytes;
+  const bytesUsed = readableBytes + faithfulBytes;
   assertCollectionCapacity(collection, bytesUsed);
 
   const itemId = crypto.randomUUID();
@@ -202,8 +228,7 @@ export async function addCapture(
     capturedAt: payload.capturedAt,
     viewport: payload.viewport,
     scope: payload.scope,
-    status: quota ? 'quota-pending' : 'ready',
-    ...(quota ? { quotaReservationId: quota.reservationId } : {}),
+    status: 'ready',
     readableAvailable: true,
     faithfulAvailable: Boolean(faithfulPdf),
     bytesUsed,
@@ -241,22 +266,6 @@ export async function addCapture(
   });
   await transaction.done;
   return item;
-}
-
-export async function markCaptureReady(itemId: string): Promise<CaptureItem> {
-  const database = await getDatabase();
-  const item = await database.get('items', itemId);
-  if (!item) throw new Error('La vista pendiente ya no existe.');
-  const ready: CaptureItem = { ...item, status: 'ready' };
-  delete ready.quotaReservationId;
-  await database.put('items', ready);
-  return ready;
-}
-
-export async function listPendingCaptureItems(): Promise<CaptureItem[]> {
-  const database = await getDatabase();
-  const pending = await database.getAllFromIndex('items', 'by-status', 'quota-pending');
-  return pending.filter((item) => Boolean(item.quotaReservationId));
 }
 
 export async function renameCaptureItem(itemId: string, title: string): Promise<void> {
