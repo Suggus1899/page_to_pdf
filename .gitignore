@@ -6,3 +6,12 @@ playwright-report/
 test-results/
 .devin/
 *.log
+.env
+.env.*.local
+AGENTS.md
+**/AGENTS.md
+CLAUDE.md
+**/CLAUDE.md
+.agents/
+.codex/
+**/SKILL.md

@@ -10,6 +10,8 @@ import {
 } from '../domain/types';
 import {
   assertCollectionCapacity,
+  DEFAULT_COLLECTION_LIMIT_BYTES,
+  isCollectionLimitBytes,
 } from '../domain/limits';
 
 interface CollectionWebDb extends DBSchema {
@@ -36,18 +38,51 @@ interface CollectionWebDb extends DBSchema {
 let databasePromise: Promise<IDBPDatabase<CollectionWebDb>> | undefined;
 
 function getDatabase(): Promise<IDBPDatabase<CollectionWebDb>> {
-  databasePromise ??= openDB<CollectionWebDb>('collection-web-pdf', 1, {
-    upgrade(database) {
-      const collections = database.createObjectStore('collections', { keyPath: 'id' });
-      collections.createIndex('by-updated', 'updatedAt');
+  databasePromise ??= openDB<CollectionWebDb>('collection-web-pdf', 3, {
+    upgrade(database, oldVersion, _newVersion, transaction) {
+      if (oldVersion < 1) {
+        const collections = database.createObjectStore('collections', { keyPath: 'id' });
+        collections.createIndex('by-updated', 'updatedAt');
 
-      const items = database.createObjectStore('items', { keyPath: 'id' });
-      items.createIndex('by-collection', 'collectionId');
-      items.createIndex('by-collection-position', ['collectionId', 'position']);
+        const items = database.createObjectStore('items', { keyPath: 'id' });
+        items.createIndex('by-collection', 'collectionId');
+        items.createIndex('by-collection-position', ['collectionId', 'position']);
 
-      const artifacts = database.createObjectStore('artifacts', { keyPath: 'id' });
-      artifacts.createIndex('by-item', 'itemId');
-      artifacts.createIndex('by-collection', 'collectionId');
+        const artifacts = database.createObjectStore('artifacts', { keyPath: 'id' });
+        artifacts.createIndex('by-item', 'itemId');
+        artifacts.createIndex('by-collection', 'collectionId');
+      } else if (oldVersion < 3) {
+        const collectionStore = transaction.objectStore('collections');
+        void collectionStore.openCursor().then(async function migrateCollection(cursor): Promise<void> {
+          if (!cursor) return;
+          const collection = cursor.value as CollectionDraft & { storageLimitBytes?: number };
+          await cursor.update({
+            ...collection,
+            storageLimitBytes: collection.storageLimitBytes ?? DEFAULT_COLLECTION_LIMIT_BYTES,
+          });
+          await migrateCollection(await cursor.continue());
+        });
+
+        const itemStore = transaction.objectStore('items');
+        const legacyItemStore = itemStore as unknown as {
+          indexNames: DOMStringList;
+          deleteIndex(name: string): void;
+        };
+        if (legacyItemStore.indexNames.contains('by-status')) legacyItemStore.deleteIndex('by-status');
+        void itemStore.openCursor().then(async function migrateItem(cursor): Promise<void> {
+          if (!cursor) return;
+          const legacy = cursor.value as CaptureItem & { quotaReservationId?: string };
+          const item: Record<string, unknown> = { ...legacy, status: 'ready' };
+          delete item.quotaReservationId;
+          await cursor.update(item as unknown as CaptureItem);
+          await migrateItem(await cursor.continue());
+        });
+      }
+    },
+    blocking() {
+      const connection = databasePromise;
+      databasePromise = undefined;
+      void connection?.then((database) => database.close());
     },
   });
   return databasePromise;
@@ -59,8 +94,9 @@ function semanticBytes(document: SemanticDocument): number {
 
 export async function listCollections(): Promise<CollectionDraft[]> {
   const database = await getDatabase();
-  const collections = await database.getAll('collections');
-  return collections.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  // El índice by-updated evita ordenar en JS; revierte para mostrar recientes primero.
+  const collections = await database.getAllFromIndex('collections', 'by-updated');
+  return collections.reverse();
 }
 
 export async function getCollection(id: string): Promise<CollectionDraft | undefined> {
@@ -90,6 +126,7 @@ export async function createCollection(name: string): Promise<CollectionDraft> {
     updatedAt: now,
     itemCount: 0,
     bytesUsed: 0,
+    storageLimitBytes: DEFAULT_COLLECTION_LIMIT_BYTES,
     status: 'ready',
     captureFaithful: true,
     printSettings: { ...DEFAULT_PRINT_SETTINGS },
@@ -116,6 +153,7 @@ export async function ensureDefaultCollection(): Promise<CollectionDraft> {
     updatedAt: now,
     itemCount: 0,
     bytesUsed: 0,
+    storageLimitBytes: DEFAULT_COLLECTION_LIMIT_BYTES,
     status: 'ready',
     captureFaithful: true,
     printSettings: { ...DEFAULT_PRINT_SETTINGS },
@@ -127,13 +165,21 @@ export async function ensureDefaultCollection(): Promise<CollectionDraft> {
 
 export async function updateCollection(
   id: string,
-  patch: Partial<Pick<CollectionDraft, 'name' | 'captureFaithful'>> & {
+  patch: Partial<Pick<CollectionDraft, 'name' | 'captureFaithful' | 'storageLimitBytes'>> & {
     printSettings?: Partial<PrintSettings>;
   },
 ): Promise<CollectionDraft> {
   const database = await getDatabase();
   const collection = await database.get('collections', id);
   if (!collection) throw new Error('La colección ya no existe.');
+  if (patch.storageLimitBytes !== undefined) {
+    if (!isCollectionLimitBytes(patch.storageLimitBytes)) {
+      throw new Error('Selecciona uno de los límites locales disponibles.');
+    }
+    if (patch.storageLimitBytes < collection.bytesUsed) {
+      throw new Error('El límite no puede ser menor que el espacio ya utilizado.');
+    }
+  }
 
   const updated: CollectionDraft = {
     ...collection,
@@ -242,13 +288,14 @@ export async function reorderCaptureItems(
   }
 
   const itemMap = new Map(items.map((item) => [item.id, item]));
-  await Promise.all(
-    orderedIds.map((id, position) => {
-      const item = itemMap.get(id);
-      if (!item) throw new Error('La vista ya no existe.');
-      return transaction.objectStore('items').put({ ...item, position });
-    }),
-  );
+  const itemStore = transaction.objectStore('items');
+  for (const [position, id] of orderedIds.entries()) {
+    const item = itemMap.get(id);
+    if (!item) throw new Error('La vista ya no existe.');
+    // Solo escribe las filas que cambian de posición (reordenar 1 item de N
+    // no debe reescribir N filas).
+    if (item.position !== position) await itemStore.put({ ...item, position });
+  }
 
   const collection = await transaction.objectStore('collections').get(collectionId);
   if (collection) {
@@ -277,11 +324,12 @@ export async function deleteCaptureItem(itemId: string): Promise<void> {
     .objectStore('items')
     .index('by-collection')
     .getAll(item.collectionId);
-  await Promise.all(
-    remaining
-      .toSorted((a, b) => a.position - b.position)
-      .map((entry, position) => transaction.objectStore('items').put({ ...entry, position })),
-  );
+  const itemStore = transaction.objectStore('items');
+  for (const [position, entry] of remaining
+    .toSorted((a, b) => a.position - b.position)
+    .entries()) {
+    if (entry.position !== position) await itemStore.put({ ...entry, position });
+  }
 
   const collection = await transaction.objectStore('collections').get(item.collectionId);
   if (collection) {

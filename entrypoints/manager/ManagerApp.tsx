@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { COLLECTION_LIMIT_OPTIONS } from '../../src/domain/limits';
 import type {
   CaptureItem,
   CollectionDraft,
@@ -106,6 +107,12 @@ export function ManagerApp() {
   const [preview, setPreview] = useState<PreviewState>();
   const [progress, setProgress] = useState<ProgressState>();
   const [notice, setNotice] = useState<{ text: string; error: boolean }>();
+  // Ref espejo para que `refresh` sea estable y no recree el efecto de carga
+  // en cada selección (antes dependía de `selectedId` y re-disparaba fetches).
+  const selectedIdRef = useRef(selectedId);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   const reportError = useCallback((error: unknown): void => {
     setNotice({
@@ -126,27 +133,32 @@ export function ManagerApp() {
     const targetId =
       preferredId && nextCollections.some((entry) => entry.id === preferredId)
         ? preferredId
-        : selectedId && nextCollections.some((entry) => entry.id === selectedId)
-          ? selectedId
+        : nextCollections.some((entry) => entry.id === selectedIdRef.current)
+          ? selectedIdRef.current
           : nextCollections[0]!.id;
     const nextItems = await listCaptureItems(targetId);
     setCollections(nextCollections);
     setSelectedId(targetId);
     setItems(nextItems);
     setNameDraft(nextCollections.find((entry) => entry.id === targetId)?.name ?? '');
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
     runAction(refresh);
   }, [refresh, runAction]);
 
   useEffect(() => {
+    let lastFocusRefresh = 0;
     const onFocus = (): void => {
-      runAction(() => refresh(selectedId));
+      // Throttle: el foco puede dispararse en ráfagas (diálogos, descargas).
+      const now = Date.now();
+      if (now - lastFocusRefresh < 1500) return;
+      lastFocusRefresh = now;
+      runAction(() => refresh(selectedIdRef.current));
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [refresh, runAction, selectedId]);
+  }, [refresh, runAction]);
 
   useEffect(() => {
     return () => {
@@ -154,7 +166,20 @@ export function ManagerApp() {
     };
   }, [preview]);
 
-  const selected = collections.find((collection) => collection.id === selectedId);
+  const selected = useMemo(
+    () => collections.find((collection) => collection.id === selectedId),
+    [collections, selectedId],
+  );
+  const { allFaithful, missingFaithful } = useMemo(() => {
+    return {
+      allFaithful: items.length > 0 && items.every((item) => item.faithfulAvailable),
+      missingFaithful: items.filter((item) => !item.faithfulAvailable).length,
+    };
+  }, [items]);
+
+  if (!selected) {
+    return <main className="empty-state">Cargando colecciones…</main>;
+  }
 
   const selectCollection = async (id: string): Promise<void> => {
     setSelectedId(id);
@@ -227,14 +252,21 @@ export function ManagerApp() {
     setNotice(undefined);
     setProgress({ percent: 1, label: 'Preparando artefactos' });
     try {
+      // Lotes de 5 lecturas IndexedDB en paralelo en vez de N round-trips en serie.
+      const batched = async <T, R>(entries: T[], size: number, map: (entry: T) => Promise<R>): Promise<R[]> => {
+        const output: R[] = [];
+        for (let index = 0; index < entries.length; index += size) {
+          output.push(...await Promise.all(entries.slice(index, index + size).map(map)));
+        }
+        return output;
+      };
       let request: PdfWorkerRequest;
       if (profile === 'readable') {
-        const exportItems: ReadableExportItem[] = [];
-        for (const item of items) {
+        const exportItems = await batched(items, 5, async (item): Promise<ReadableExportItem> => {
           const artifact = await getReadableArtifact(item.id);
           if (!artifact) throw new Error('Falta la versión legible de "' + item.title + '".');
-          exportItems.push({ item, document: artifact.data });
-        }
+          return { item, document: artifact.data };
+        });
         request = {
           id: crypto.randomUUID(),
           profile,
@@ -242,14 +274,13 @@ export function ManagerApp() {
           items: exportItems,
         };
       } else {
-        const exportItems: FaithfulExportItem[] = [];
-        for (const item of items) {
+        const exportItems = await batched(items, 5, async (item): Promise<FaithfulExportItem> => {
           const artifact = await getFaithfulArtifact(item.id);
           if (!artifact) {
             throw new Error('La vista "' + item.title + '" no tiene un PDF visual.');
           }
-          exportItems.push({ item, pdf: artifact.data });
-        }
+          return { item, pdf: artifact.data };
+        });
         request = {
           id: crypto.randomUUID(),
           profile,
@@ -294,9 +325,6 @@ export function ManagerApp() {
   if (!selected) {
     return <main className="empty-state">Cargando colecciones…</main>;
   }
-
-  const allFaithful = items.length > 0 && items.every((item) => item.faithfulAvailable);
-  const missingFaithful = items.filter((item) => !item.faithfulAvailable).length;
 
   return (
     <main className="manager-shell">
@@ -353,7 +381,7 @@ export function ManagerApp() {
             />
             <div className="collection-summary muted">
               <span>{selected.itemCount} {selected.itemCount === 1 ? 'vista' : 'vistas'}</span>
-              <span>{formatBytes(selected.bytesUsed)} de 300 MB</span>
+              <span>{formatBytes(selected.bytesUsed)} de {formatBytes(selected.storageLimitBytes)}</span>
             </div>
           </div>
           <div className="header-actions">
@@ -387,6 +415,21 @@ export function ManagerApp() {
             </div>
           </div>
           <div className="settings-fields">
+            <label className="field">
+              <span>Límite local</span>
+              <select
+                value={selected.storageLimitBytes}
+                onChange={(event) => runAction(() => updateSettings({
+                  storageLimitBytes: Number(event.target.value),
+                }))}
+              >
+                {COLLECTION_LIMIT_OPTIONS.map((limit) => (
+                  <option key={limit} value={limit} disabled={limit < selected.bytesUsed}>
+                    {formatBytes(limit)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="field">
               <span>Papel</span>
               <select

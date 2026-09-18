@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CollectionDraft } from '../../src/domain/types';
-import { MAX_COLLECTION_BYTES } from '../../src/domain/limits';
 import { copy } from '../../src/i18n/es';
 import {
   MESSAGE_PROTOCOL_VERSION,
@@ -58,8 +57,10 @@ export function PopupApp() {
     runAction(refresh);
   }, [refresh, runAction]);
 
-  const selected = collections.find((collection) => collection.id === selectedId);
-
+  const selected = useMemo(
+    () => collections.find((collection) => collection.id === selectedId),
+    [collections, selectedId],
+  );
   const selectCollection = async (id: string): Promise<void> => {
     setSelectedId(id);
     await browser.storage.local.set({ [ACTIVE_COLLECTION_KEY]: id });
@@ -83,8 +84,11 @@ export function PopupApp() {
     printSettings: Partial<CollectionDraft['printSettings']>,
   ): Promise<void> => {
     if (!selected) return;
-    await updateCollection(selected.id, { printSettings });
-    await refresh();
+    // Optimista: actualiza la UI sin re-leer todas las colecciones de IndexedDB.
+    const updated = await updateCollection(selected.id, { printSettings });
+    setCollections((current) =>
+      current.map((collection) => (collection.id === updated.id ? updated : collection)),
+    );
   };
 
   const capture = async (
@@ -164,9 +168,9 @@ export function PopupApp() {
           {selected ? (
             <div className="collection-usage muted" aria-live="polite">
               <span>{selected.itemCount} {selected.itemCount === 1 ? 'vista' : 'vistas'}</span>
-              <span>{formatBytes(selected.bytesUsed)} de 300 MB</span>
+              <span>{formatBytes(selected.bytesUsed)} de {formatBytes(selected.storageLimitBytes)}</span>
               <span className="usage-track" aria-hidden="true">
-                <span style={{ width: `${Math.min(100, selected.bytesUsed / MAX_COLLECTION_BYTES * 100)}%` }} />
+                <span style={{ width: `${Math.min(100, selected.bytesUsed / selected.storageLimitBytes * 100)}%` }} />
               </span>
             </div>
           ) : null}
@@ -280,7 +284,7 @@ export function PopupApp() {
 
         <p className="privacy-note">
           <span aria-hidden="true">◆</span>
-          Captura visual local con el permiso avanzado aceptado al cargar la extensión. Ningún contenido sale de tu dispositivo.
+          La web y el PDF permanecen en tu dispositivo. La extensión funciona sin cuenta ni servidor.
         </p>
 
         {message ? (

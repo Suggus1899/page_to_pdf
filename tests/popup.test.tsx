@@ -10,7 +10,7 @@ describe('popup', () => {
   beforeEach(async () => {
     await clearAllData();
     sendMessage.mockReset();
-    sendMessage.mockResolvedValue({ ok: true });
+    sendMessage.mockResolvedValue({ ok: true, data: {} });
     vi.stubGlobal('browser', {
       storage: {
         local: {
@@ -44,7 +44,7 @@ describe('popup', () => {
     await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'capture/full', faithful: true }),
     ));
-    expect(screen.getByText(/permiso avanzado aceptado al cargar la extensión/i)).toBeVisible();
+    expect(screen.getByText(/funciona sin cuenta ni servidor/i)).toBeVisible();
   });
 
   it('permite ajustar el PDF de la colección activa', async () => {

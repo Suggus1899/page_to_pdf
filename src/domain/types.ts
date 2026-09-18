@@ -23,6 +23,7 @@ export interface CollectionDraft {
   updatedAt: string;
   itemCount: number;
   bytesUsed: number;
+  storageLimitBytes: number;
   status: 'ready';
   captureFaithful: boolean;
   printSettings: PrintSettings;

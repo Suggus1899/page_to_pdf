@@ -60,7 +60,9 @@ describe('administrador', () => {
     download.mockReset();
     download.mockResolvedValue(1);
     vi.mocked(createPdfInWorker).mockClear();
-    vi.stubGlobal('browser', { downloads: { download } });
+    vi.stubGlobal('browser', {
+      downloads: { download },
+    });
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       value: vi.fn(() => 'blob:pdf-de-prueba'),
@@ -142,5 +144,14 @@ describe('administrador', () => {
     fireEvent(dialog, new Event('cancel', { cancelable: true }));
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
     expect(previewButton).toHaveFocus();
+  });
+
+  it('permite cambiar el límite local de la colección', async () => {
+    const user = userEvent.setup();
+    render(<ManagerApp />);
+
+    const limit = await screen.findByLabelText('Límite local');
+    await user.selectOptions(limit, String(500 * 1024 * 1024));
+    await waitFor(() => expect(limit).toHaveValue(String(500 * 1024 * 1024)));
   });
 });

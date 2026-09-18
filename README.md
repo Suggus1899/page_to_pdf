@@ -3,146 +3,92 @@
 
   # Colección Web PDF
 
-  **Captura páginas y estados de aplicaciones web como un único PDF visual, sin subir su contenido a un servidor.**
+  **Reúne páginas, secciones y estados de una web en un único PDF visual.**
 
-  Manifest V3 · WXT · React · TypeScript · Chrome · Opera GX
+  Gratis · Código abierto · Procesamiento local · Chrome · Opera GX
 </div>
 
-## Qué problema resuelve
+## Qué hace
 
-Una web moderna puede repartir su contenido entre rutas, filtros, pestañas y estados SPA, incluso manteniendo la misma URL. Colección Web PDF permite guardar cada estado como una vista independiente, ordenarlas y exportarlas juntas.
+Colección Web PDF guarda el estado actual de una página con imágenes, estilos, fondos, enlaces y texto seleccionable. Cada ruta, filtro, pestaña o estado SPA se añade manualmente como una vista independiente, incluso si comparte URL con otras vistas.
 
-La extensión no rastrea el sitio automáticamente: tú decides qué páginas o secciones forman parte del documento.
-
-## Funciones actuales
-
-- Captura visual de una página completa con imágenes, estilos, fondos, enlaces y texto seleccionable.
-- Selección de múltiples secciones y exclusiones internas mediante una interfaz aislada con Shadow DOM.
-- Preparación de contenido dinámico con auto-scroll acotado y restauración de la posición original.
-- Colecciones persistentes sin límite de vistas y con un máximo local de 300 MB cada una.
-- Capturas inmutables: dos estados distintos con la misma URL se conservan como elementos independientes.
-- Administrador para renombrar, previsualizar, reordenar, eliminar y volver a exportar vistas.
-- PDF visual con portada, índice, separadores, URL y fecha de captura.
-- Versión secundaria para lectura por IA con encabezados, párrafos, tablas, listas, código, enlaces y metadatos.
-- Interfaz en español preparada para internacionalización.
-
-## Cómo funciona
-
-1. Crea o elige una colección desde el popup.
-2. Abre el estado de la web que quieras conservar.
-3. Pulsa **Web completa** o **Secciones**.
-4. Confirma la captura después de preparar el contenido dinámico.
-5. Repite el proceso para otras rutas, filtros o estados.
-6. Abre el administrador, ajusta el orden y exporta el PDF visual o la versión IA.
-
-El PDF visual se genera con `Page.printToPDF` mediante la API `debugger` de Chromium. Si el permiso no está disponible, DevTools ya usa la pestaña o la navegación cambia durante el proceso, la captura se cancela sin guardar una vista parcial.
+- Captura una página completa o varias secciones elegidas.
+- Prepara contenido lazy-load con auto-scroll acotado y restaura el desplazamiento.
+- Conserva un PDF visual y una versión semántica para lectura por IA.
+- Permite previsualizar, renombrar, reordenar, eliminar y volver a exportar.
+- Genera portada, índice, separadores, URL y fecha de captura.
+- No requiere cuenta, registro, servidor ni conexión para capturar y exportar.
 
 ## Privacidad
 
-El contenido capturado, los PDF y las colecciones se procesan y almacenan localmente en el navegador mediante IndexedDB. La versión actual no incluye telemetría, cuenta de usuario ni backend, y no solicita acceso permanente a todos los sitios con `<all_urls>`.
+Las páginas, imágenes, URL, títulos, documentos semánticos y PDF permanecen en el dispositivo. La extensión no incluye telemetría, backend ni código remoto. Las únicas solicitudes de red posibles son las que la propia página necesite para terminar de cargar sus recursos antes de imprimirla.
 
-El permiso `debugger` se utiliza exclusivamente para pedir al navegador el PDF visual de la pestaña elegida por el usuario.
+El permiso `debugger` se usa exclusivamente para solicitar a Chromium el PDF visual de la pestaña elegida por el usuario. El manifiesto no solicita permisos permanentes sobre sitios web.
 
-## Instalar para desarrollo
+## Límites locales
 
-### Requisitos
+No existe límite de vistas ni cuota temporal. Cada colección tiene un límite local configurable de 100 MB, 300 MB, 500 MB o 1 GB; 300 MB es el valor predeterminado. El límite evita agotar accidentalmente el almacenamiento del navegador y no puede reducirse por debajo del espacio ya utilizado.
 
-- Node.js 22 o posterior.
-- npm.
-- Chrome u Opera GX.
+Las colecciones de versiones anteriores se migran automáticamente a IndexedDB v3 sin perder capturas ni artefactos.
+
+## Instalación para usuarios
+
+1. Descarga y descomprime una release.
+2. Abre `chrome://extensions` u `opera://extensions`.
+3. Activa el modo desarrollador.
+4. Elige **Cargar descomprimida** y selecciona la carpeta `chrome-mv3`.
+
+Las páginas internas del navegador, Chrome Web Store, visores PDF protegidos, iframes de otro origen, shadow roots cerrados y contenido DRM no pueden capturarse. Videos y controles interactivos se representan por el estado estático que Chromium pueda imprimir.
+
+## Desarrollo
+
+Requisitos: Node.js 22 o posterior, npm y un navegador Chromium para E2E.
 
 ```powershell
 git clone https://github.com/Suggus1899/page_to_pdf.git
 cd page_to_pdf
-npm install
+npm ci
+npm run verify
+npm run test:e2e
+```
+
+El build queda en `.output/chrome-mv3`. No se necesitan archivos `.env` ni servicios externos.
+
+### Comandos
+
+```powershell
+npm run dev
+npm run typecheck
+npm run lint
+npm test
 npm run build
-```
-
-El paquete Chromium queda en `.output/chrome-mv3`.
-
-### Cargar en Chrome
-
-1. Abre `chrome://extensions`.
-2. Activa **Modo desarrollador**.
-3. Pulsa **Cargar descomprimida**.
-4. Selecciona la carpeta `.output/chrome-mv3`.
-
-### Cargar en Opera GX
-
-1. Abre `opera://extensions`.
-2. Activa **Modo desarrollador**.
-3. Pulsa **Cargar descomprimida**.
-4. Selecciona la misma carpeta `.output/chrome-mv3`.
-
-No se necesita un build diferente para Opera GX.
-
-## Desarrollo
-
-```powershell
-npm run dev        # WXT en modo desarrollo
-npm run typecheck  # TypeScript estricto
-npm run lint       # ESLint
-npm test           # Vitest
-npm run build      # Build Chromium MV3
-npm run verify     # Typecheck, lint, pruebas y build
-```
-
-Para ejecutar el E2E con un navegador instalado:
-
-```powershell
-$env:BROWSER_EXECUTABLE='C:\Program Files\Google\Chrome\Application\chrome.exe'
+npm run verify
 npm run test:e2e
-
-$env:BROWSER_EXECUTABLE='C:\Users\PC\AppData\Local\Programs\Opera GX\opera.exe'
-npm run test:e2e
+npm audit --audit-level=high
 ```
-
-Chrome estable puede restringir la carga automatizada de extensiones. En ese caso, Playwright valida con Chromium y la revisión final se realiza cargando manualmente el mismo paquete.
 
 ## Arquitectura
 
 ```text
 entrypoints/
-  background.ts       Orquestación de captura y persistencia
-  capture.ts          Runtime inyectado en la página
-  popup/              Acciones rápidas y ajustes del PDF
-  manager/            Administración y exportación
+  background.ts        Orquestación local de captura y persistencia
+  capture.ts           Runtime aislado inyectado en la página
+  popup/               Captura rápida y ajustes de impresión
+  manager/             Colecciones, vistas previas y exportación
 src/
-  capture/             Auto-scroll, extracción y selección
-  pdf/                 Adaptador Chromium para printToPDF
-  export/              Generadores visual e IA
-  storage/             IndexedDB
-  domain/              Tipos y reglas de capacidad
-tests/                 Unitarias, componentes, E2E y sitio de prueba
+  capture/             Auto-scroll, extracción y selector visual
+  pdf/                 Adaptador Chromium para Page.printToPDF
+  export/              Workers de PDF visual y semántico
+  storage/             IndexedDB y migraciones locales
+  domain/              Tipos y límites configurables
 ```
 
-Las APIs específicas del navegador permanecen detrás de adaptadores pequeños. La generación pesada de PDF se ejecuta en un Web Worker y todo el código necesario se incluye en el paquete de la extensión.
+WXT genera un único paquete Manifest V3 para Chrome y Opera GX. La generación pesada se reparte entre workers; el contenido visual y semántico se guarda de forma atómica en IndexedDB.
 
-## Sitio de prueba
+## Contribuir y seguridad
 
-`tests/fixtures/site/index.html` reúne los casos límite usados durante el desarrollo:
+Lee [CONTRIBUTING.md](CONTRIBUTING.md) antes de enviar cambios. Para vulnerabilidades, sigue el canal privado descrito en [SECURITY.md](SECURITY.md) y evita abrir un issue público con detalles sensibles.
 
-- artículo largo y lazy-load;
-- scroll anidado;
-- dos estados SPA bajo la misma URL;
-- tablas, código y formularios;
-- iframe externo, canvas e imagen fallida.
+## Licencia
 
-## Límites conocidos
-
-No pueden capturarse páginas internas del navegador, Chrome Web Store, visores PDF protegidos, iframes de otro origen, shadow roots cerrados, contenido DRM ni sesiones de inicio de sesión automatizadas. Videos, animaciones y controles interactivos se representan únicamente por el estado estático que el navegador pueda imprimir.
-
-## Hoja de ruta
-
-- Cuenta de usuario con cuota gratuita de 150 MB cada 15 días.
-- Suscripción Premium y apartado para apoyar el proyecto.
-- Adaptador específico para Firefox.
-
-Estas funciones están planificadas y todavía no forman parte del build actual.
-
-## Contribuir
-
-1. Crea una rama desde la rama principal del proyecto.
-2. Mantén TypeScript estricto y evita lógica remota en el paquete MV3.
-3. Añade o actualiza la prueba mínima que cubra el cambio.
-4. Ejecuta `npm run verify` antes de abrir un pull request.
+Colección Web PDF se distribuye bajo [GNU GPL v3](LICENSE), identificador SPDX `GPL-3.0-only`.

@@ -1,10 +1,20 @@
 {
   "name": "coleccion-web-pdf",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Extensión Chromium para recopilar múltiples vistas web y exportarlas como PDF.",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Suggus1899/page_to_pdf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Suggus1899/page_to_pdf/issues"
+  },
+  "homepage": "https://github.com/Suggus1899/page_to_pdf#readme",
   "scripts": {
+    "postinstall": "wxt prepare",
     "dev": "wxt",
     "build": "wxt build",
     "zip": "wxt zip",

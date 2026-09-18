@@ -20,5 +20,6 @@ describe('nombres de archivo', () => {
     expect(formatBytes(900)).toBe('900 B');
     expect(formatBytes(1536)).toBe('1.5 KB');
     expect(formatBytes(2 * 1024 * 1024)).toBe('2.0 MB');
+    expect(formatBytes(1024 ** 3)).toBe('1.0 GB');
   });
 });

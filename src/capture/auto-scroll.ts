@@ -11,28 +11,40 @@ interface ScrollTarget {
 }
 
 const MAX_DURATION_MS = 30_000;
-const MAX_STEPS = 50;
-const SETTLE_MS = 250;
+// devwf: techo conocido — 35 pasos x ~120ms cubre lazy-load típico; páginas
+// infinitas quedan marcadas con reachedLimit en vez de bloquear la captura.
+const MAX_STEPS = 35;
+const SETTLE_MS = 120;
+
+function isVerticallyScrollable(element: HTMLElement): boolean {
+  // Filtro barato primero (solo geometría); getComputedStyle solo a candidatos.
+  if (element.scrollHeight <= element.clientHeight + 24) return false;
+  const style = getComputedStyle(element);
+  return style.overflowY === 'auto' || style.overflowY === 'scroll';
+}
 
 function findScrollTargets(): ScrollTarget[] {
   const documentScroller = document.scrollingElement;
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>('body *'))
-    .filter((element) => {
-      const style = getComputedStyle(element);
-      return (
-        element.scrollHeight > element.clientHeight + 24 &&
-        ['auto', 'scroll'].includes(style.overflowY)
-      );
-    })
-    .toSorted(
-      (a, b) =>
-        b.scrollHeight - b.clientHeight - (a.scrollHeight - a.clientHeight),
-    )
-    .slice(0, 8);
+  // TreeWalker evita materializar `body *` con querySelectorAll en páginas grandes.
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+  const candidates: HTMLElement[] = [];
+  let node = walker.nextNode() as HTMLElement | null;
+  while (node) {
+    if (node !== documentScroller && isVerticallyScrollable(node)) {
+      candidates.push(node);
+    }
+    node = walker.nextNode() as HTMLElement | null;
+  }
+  candidates.sort(
+    (a, b) =>
+      b.scrollHeight - b.clientHeight - (a.scrollHeight - a.clientHeight),
+  );
+
+  const top = candidates.slice(0, 8);
 
   const elements = documentScroller
-    ? [documentScroller, ...candidates.filter((element) => element !== documentScroller)]
-    : candidates;
+    ? [documentScroller, ...top.filter((element) => element !== documentScroller)]
+    : top;
   return elements.map((element) => ({ element, initialTop: element.scrollTop }));
 }
 

@@ -1,21 +1,18 @@
 /// <reference lib="webworker" />
 
 import { generateFaithfulPdf } from './faithful';
-import { generateReadablePdf } from './readable';
 import type { PdfWorkerRequest, PdfWorkerResponse } from './types';
 
 const worker = self as unknown as DedicatedWorkerGlobalScope;
 
 worker.addEventListener('message', (event: MessageEvent<PdfWorkerRequest>) => {
   const request = event.data;
+  if (request.profile !== 'faithful') return;
   const progress = (percent: number, label: string): void => {
     worker.postMessage({ id: request.id, type: 'progress', percent, label } satisfies PdfWorkerResponse);
   };
 
-  void (request.profile === 'readable'
-    ? generateReadablePdf(request, progress)
-    : generateFaithfulPdf(request, progress)
-  )
+  void generateFaithfulPdf(request, progress)
     .then((pdf) => {
       worker.postMessage(
         { id: request.id, type: 'complete', pdf } satisfies PdfWorkerResponse,

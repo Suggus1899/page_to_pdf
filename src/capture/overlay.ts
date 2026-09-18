@@ -123,6 +123,20 @@ export function runSectionSelector(): Promise<SelectionResult | undefined> {
     }
   };
 
+  // Throttle por frame: mousemove/scroll disparan decenas de eventos por segundo
+  // y cada render mide rects (layout). Coalescar evita thrashing.
+  let renderQueued = false;
+  const scheduleRender = (): void => {
+    if (renderQueued) return;
+    renderQueued = true;
+    const run = (): void => {
+      renderQueued = false;
+      renderMarkers();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else window.setTimeout(run, 16);
+  };
+
   const targetAt = (event: MouseEvent): Element | undefined => {
     const target = document.elementFromPoint(event.clientX, event.clientY);
     if (!target || target === host || host.contains(target)) return undefined;
@@ -132,7 +146,7 @@ export function runSectionSelector(): Promise<SelectionResult | undefined> {
   const onPointerMove = (event: MouseEvent): void => {
     if (showingPreview) return;
     hover = targetAt(event);
-    renderMarkers();
+    scheduleRender();
   };
 
   const onPageClick = (event: MouseEvent): void => {
@@ -156,7 +170,7 @@ export function runSectionSelector(): Promise<SelectionResult | undefined> {
     renderMarkers();
   };
 
-  const onViewportChange = (): void => renderMarkers();
+  const onViewportChange = (): void => scheduleRender();
 
   return new Promise((resolve) => {
     const cleanup = (): void => {

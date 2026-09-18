@@ -66,9 +66,24 @@ button:disabled {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-a:focus-visible {
+a:focus-visible,
+summary:focus-visible {
   outline: 3px solid var(--brand);
   outline-offset: 2px;
+}
+
+.text-button {
+  min-height: 28px;
+  border: 0;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--brand-strong);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.text-button:not(:disabled):hover {
+  text-decoration: underline;
 }
 
 .button {
@@ -183,6 +198,22 @@ select.text-input {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.usage-track {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6ebf3;
+}
+
+.usage-track > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--brand);
 }
 
 @media (prefers-reduced-motion: reduce) {

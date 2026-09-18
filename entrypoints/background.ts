@@ -8,10 +8,18 @@ import {
 } from '../src/runtime/messages';
 import { addCapture, ensureDefaultCollection, getCollection } from '../src/storage/database';
 
+const LEGACY_SESSION_KEY = /^account:/;
+
 function assertInjectable(tab: Browser.tabs.Tab): asserts tab is Browser.tabs.Tab & { id: number; url: string } {
   if (tab.id === undefined || !tab.url || !/^(https?|file):/i.test(tab.url)) {
     throw new Error('Esta página está protegida por el navegador y no puede capturarse.');
   }
+}
+
+async function clearLegacyAccountSession(): Promise<void> {
+  const stored = await browser.storage.local.get();
+  const legacyKeys = Object.keys(stored).filter((key) => LEGACY_SESSION_KEY.test(key));
+  if (legacyKeys.length > 0) await browser.storage.local.remove(legacyKeys);
 }
 
 async function activeTab(): Promise<Browser.tabs.Tab & { id: number; url: string }> {
@@ -98,7 +106,11 @@ async function handleMessage(
 
 export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => {
-    void ensureDefaultCollection();
+    void Promise.all([ensureDefaultCollection(), clearLegacyAccountSession()]);
+  });
+
+  browser.runtime.onStartup.addListener(() => {
+    void clearLegacyAccountSession();
   });
 
   browser.runtime.onMessage.addListener((value: unknown, sender, sendResponse) => {

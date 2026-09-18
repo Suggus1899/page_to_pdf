@@ -19,6 +19,7 @@ test.describe('build Chromium sin empaquetar', () => {
       args: [
         '--no-first-run',
         '--disable-default-apps',
+        '--disable-features=DisableLoadExtensionCommandLineSwitch',
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
       ],
@@ -41,6 +42,7 @@ test.describe('build Chromium sin empaquetar', () => {
 
     expect(manifest.permissions).toContain('debugger');
     expect(manifest.optional_permissions).toBeUndefined();
+    expect(manifest.host_permissions).toBeUndefined();
   });
 
   test('incluye la identidad visual en el manifiesto', () => {
@@ -66,6 +68,7 @@ test.describe('build Chromium sin empaquetar', () => {
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await expect(popup.locator('img.brand-mark')).toBeVisible();
     await expect(popup.getByRole('heading', { name: 'Colección Web PDF' })).toBeVisible();
+    await expect(popup.getByText(/funciona sin cuenta ni servidor/i)).toBeVisible();
     await expect(popup.getByRole('button', { name: 'Capturar web completa' })).toBeEnabled();
     await expect(popup.getByRole('combobox', { name: 'Colección activa' })).toContainText(
       'Mi primera colección',
@@ -82,6 +85,7 @@ test.describe('build Chromium sin empaquetar', () => {
     await expect(manager.getByText('La colección está vacía')).toBeVisible();
     await manager.reload();
     await expect(manager.getByText('Mi primera colección')).toBeVisible();
+    await expect(manager.getByLabel('Límite local')).toHaveValue(String(300 * 1024 * 1024));
 
     for (const viewport of [
       { width: 1366, height: 768 },

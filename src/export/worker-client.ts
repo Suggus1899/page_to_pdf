@@ -1,11 +1,14 @@
-import PdfWorker from './pdf.worker?worker';
+import FaithfulWorker from './faithful.worker?worker';
+import ReadableWorker from './readable.worker?worker';
 import type { PdfWorkerRequest, PdfWorkerResponse } from './types';
 
 export function createPdfInWorker(
   request: PdfWorkerRequest,
   onProgress: (percent: number, label: string) => void,
 ): Promise<ArrayBuffer> {
-  const worker = new PdfWorker();
+  // Workers separados por perfil: la ruta fiel no descarga pdfmake+vfs
+  // (~1MB+) y la legible no descarga pdf-lib. Ahorro directo en .output.
+  const worker = request.profile === 'faithful' ? new FaithfulWorker() : new ReadableWorker();
   return new Promise((resolve, reject) => {
     const finish = (): void => worker.terminate();
     worker.addEventListener('message', (event: MessageEvent<PdfWorkerResponse>) => {
